@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/census-instrumentation/opencensus-proto v0.3.0
 	github.com/gogo/protobuf v1.3.1
-	github.com/golang/protobuf v1.4.2
+	github.com/golang/protobuf v1.5.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/splunk v0.0.0-00010101000000-000000000000
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/k8sclusterreceiver v0.0.0-00010101000000-000000000000
 	github.com/shirou/gopsutil v2.20.9+incompatible
@@ -14,7 +14,7 @@ require (
 	go.opentelemetry.io/collector v0.13.1-0.20201029205115-f137ead593ba
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
-	google.golang.org/protobuf v1.25.0
+	google.golang.org/protobuf v1.27.1
 )
 
 replace github.com/open-telemetry/opentelemetry-collector-contrib/internal/splunk => ../../internal/splunk
