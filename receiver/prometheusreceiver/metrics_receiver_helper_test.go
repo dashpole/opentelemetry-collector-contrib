@@ -285,7 +285,8 @@ func doCompare(t *testing.T, name string, want pdata.AttributeMap, got *pdata.Re
 		assert.Equal(t, expectedScrapeMetricCount, countScrapeMetricsRM(got))
 		assert.Equal(t, want.Len(), got.Resource().Attributes().Len())
 		for k, v := range want.AsRaw() {
-			value, _ := got.Resource().Attributes().Get(k)
+			value, found := got.Resource().Attributes().Get(k)
+			assert.True(t, found, "want key %q in attributes, but got attributes: %+v", k, got.Resource().Attributes())
 			assert.EqualValues(t, v, value.AsString())
 		}
 		for _, e := range expectations {
