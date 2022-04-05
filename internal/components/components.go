@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/collector/processor/memorylimiterprocessor"
 	"go.opentelemetry.io/collector/receiver/otlpreceiver"
 
+	"github.com/dashpole/opentelemetry-operations-go/exporter/collector/googlemanagedprometheus"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/alibabacloudlogserviceexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awscloudwatchlogsexporter"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awsemfexporter"
@@ -245,6 +246,7 @@ func Components() (component.Factories, error) {
 		f5cloudexporter.NewFactory(),
 		fileexporter.NewFactory(),
 		googlecloudexporter.NewFactory(),
+		googlemanagedprometheus.NewFactory(),
 		honeycombexporter.NewFactory(),
 		humioexporter.NewFactory(),
 		influxdbexporter.NewFactory(),
