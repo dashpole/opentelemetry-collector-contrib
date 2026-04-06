@@ -22,6 +22,7 @@ type appendable struct {
 
 	settings receiver.Settings
 	obsrecv  *receiverhelper.ObsReport
+	disableDefaultServiceMapping bool
 }
 
 // NewAppendable returns a storage.Appendable instance that emits metrics to the sink.
@@ -31,6 +32,7 @@ func NewAppendable(
 	useMetadata bool,
 	externalLabels labels.Labels,
 	trimSuffixes bool,
+	disableDefaultServiceMapping bool,
 ) (storage.Appendable, error) {
 	obsrecv, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{ReceiverID: set.ID, Transport: transport, ReceiverCreateSettings: set})
 	if err != nil {
@@ -44,9 +46,10 @@ func NewAppendable(
 		externalLabels: externalLabels,
 		obsrecv:        obsrecv,
 		trimSuffixes:   trimSuffixes,
+		disableDefaultServiceMapping: disableDefaultServiceMapping,
 	}, nil
 }
 
 func (o *appendable) Appender(ctx context.Context) storage.Appender {
-	return newTransaction(ctx, o.sink, o.externalLabels, o.settings, o.obsrecv, o.trimSuffixes, o.useMetadata)
+	return newTransaction(ctx, o.sink, o.externalLabels, o.settings, o.obsrecv, o.trimSuffixes, o.useMetadata, o.disableDefaultServiceMapping)
 }

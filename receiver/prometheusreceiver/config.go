@@ -29,6 +29,7 @@ import (
 type Config struct {
 	PrometheusConfig   *PromConfig `mapstructure:"config"`
 	TrimMetricSuffixes bool        `mapstructure:"trim_metric_suffixes"`
+	DisableDefaultServiceMapping bool        `mapstructure:"disable_default_service_mapping"`
 
 	TargetAllocator configoptional.Optional[targetallocator.Config] `mapstructure:"target_allocator"`
 

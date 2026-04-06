@@ -60,6 +60,8 @@ func makeResourceWithJobInstanceScheme(def *jobInstanceDefinition, hasHost bool)
 	attrs := resource.Attributes()
 	// Using hardcoded values to assert on outward expectations so that
 	// when variables change, these tests will fail and we'll have reports.
+	attrs.PutStr("prometheus.job", def.job)
+	attrs.PutStr("prometheus.instance", def.instance)
 	attrs.PutStr("service.name", def.job)
 	if hasHost {
 		attrs.PutStr("server.address", def.host)
@@ -269,7 +271,7 @@ func TestCreateNodeAndResourcePromToOTLP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CreateResource(tt.job, tt.instance, tt.sdLabels)
+			got := CreateResource(tt.job, tt.instance, tt.sdLabels, false)
 			require.Equal(t, tt.want.Attributes().AsRaw(), got.Attributes().AsRaw())
 		})
 	}

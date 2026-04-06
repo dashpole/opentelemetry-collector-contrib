@@ -276,7 +276,7 @@ func (prw *prometheusRemoteWriteReceiver) getOrCreateRM(ls labels.Labels, otelMe
 	} else {
 		// When the ResourceMetrics does not exist in the global cache, we need to create a new one and add it to the request map.
 		// Saving the new ResourceMetrics in the global cache to avoid creating duplicates in the next requests.
-		parseJobAndInstance(rm.Resource().Attributes(), ls.Get("job"), ls.Get("instance"))
+		parseJobAndInstance(rm.Resource().Attributes(), ls.Get("job"), ls.Get("instance"), prw.config.DisableDefaultServiceMapping)
 		snapshot := pmetric.NewResourceMetrics()
 		rm.Resource().Attributes().CopyTo(snapshot.Resource().Attributes())
 		prw.rmCache.Add(hashedLabels, snapshot)
@@ -604,18 +604,27 @@ func setMetric(scope pmetric.ScopeMetrics, metricName, unit, description string)
 
 // parseJobAndInstance turns the job and instance labels service resource attributes.
 // Following the specification at https://opentelemetry.io/docs/specs/otel/compatibility/prometheus_and_openmetrics/
-func parseJobAndInstance(dest pcommon.Map, job, instance string) {
-	if instance != "" {
-		dest.PutStr("service.instance.id", instance)
-	}
+func parseJobAndInstance(dest pcommon.Map, job, instance string, disableDefaultServiceMapping bool) {
 	if job != "" {
-		parts := strings.Split(job, "/")
-		if len(parts) == 2 {
-			dest.PutStr("service.namespace", parts[0])
-			dest.PutStr("service.name", parts[1])
-			return
+		dest.PutStr("prometheus.job", job)
+	}
+	if instance != "" {
+		dest.PutStr("prometheus.instance", instance)
+	}
+
+	if !disableDefaultServiceMapping {
+		if instance != "" {
+			dest.PutStr("service.instance.id", instance)
 		}
-		dest.PutStr("service.name", job)
+		if job != "" {
+			parts := strings.Split(job, "/")
+			if len(parts) == 2 {
+				dest.PutStr("service.namespace", parts[0])
+				dest.PutStr("service.name", parts[1])
+				return
+			}
+			dest.PutStr("service.name", job)
+		}
 	}
 }
 

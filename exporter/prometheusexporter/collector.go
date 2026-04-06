@@ -545,7 +545,7 @@ func (c *collector) createTargetInfoMetrics(resourceAttrs []pcommon.Map) ([]prom
 		rAttributes.CopyTo(attributes)
 		attributes.RemoveIf(func(k string, _ pcommon.Value) bool {
 			switch k {
-			case string(conventions.ServiceNameKey), string(conventions.ServiceNamespaceKey), string(conventions.ServiceInstanceIDKey):
+			case string(conventions.ServiceNameKey), string(conventions.ServiceNamespaceKey), string(conventions.ServiceInstanceIDKey), "prometheus.job", "prometheus.instance":
 				// Remove resource attributes used for job + instance
 				return true
 			default:

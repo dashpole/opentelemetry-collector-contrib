@@ -11,6 +11,7 @@ import (
 // Config holds common fields and embedded protocol-specific configurations
 type Config struct {
 	confighttp.ServerConfig `mapstructure:",squash"`
+	DisableDefaultServiceMapping bool `mapstructure:"disable_default_service_mapping"`
 }
 
 var _ component.Config = (*Config)(nil)

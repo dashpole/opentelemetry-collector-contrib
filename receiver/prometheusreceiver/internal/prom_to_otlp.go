@@ -42,18 +42,25 @@ func isDiscernibleHost(host string) bool {
 }
 
 // CreateResource creates the resource data added to OTLP payloads.
-func CreateResource(job, instance string, serviceDiscoveryLabels labels.Labels) pcommon.Resource {
+func CreateResource(job, instance string, serviceDiscoveryLabels labels.Labels, disableDefaultServiceMapping bool) pcommon.Resource {
 	host, port, err := net.SplitHostPort(instance)
 	if err != nil {
 		host = instance
 	}
 	resource := pcommon.NewResource()
 	attrs := resource.Attributes()
-	attrs.PutStr(string(conventions.ServiceNameKey), job)
+
+	attrs.PutStr("prometheus.job", job)
+	attrs.PutStr("prometheus.instance", instance)
+
+	if !disableDefaultServiceMapping {
+		attrs.PutStr(string(conventions.ServiceNameKey), job)
+		attrs.PutStr(string(conventions.ServiceInstanceIDKey), instance)
+	}
+
 	if isDiscernibleHost(host) {
 		attrs.PutStr(string(conventions.ServerAddressKey), host)
 	}
-	attrs.PutStr(string(conventions.ServiceInstanceIDKey), instance)
 	attrs.PutStr(string(conventions.ServerPortKey), port)
 	attrs.PutStr(string(conventions.URLSchemeKey), serviceDiscoveryLabels.Get(model.SchemeLabel))
 

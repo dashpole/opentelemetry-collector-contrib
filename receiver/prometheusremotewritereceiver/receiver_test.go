@@ -183,6 +183,31 @@ func TestHandlePRWContentTypeNegotiation(t *testing.T) {
 	}
 }
 
+func addPrometheusAttributes(md pmetric.Metrics) {
+	rms := md.ResourceMetrics()
+	for i := 0; i < rms.Len(); i++ {
+		rm := rms.At(i)
+		attrs := rm.Resource().Attributes()
+
+		// Reconstruct job
+		var job string
+		if ns, ok := attrs.Get("service.namespace"); ok {
+			job = ns.AsString() + "/"
+		}
+		if name, ok := attrs.Get("service.name"); ok {
+			job += name.AsString()
+		}
+
+		if job != "" {
+			attrs.PutStr("prometheus.job", job)
+		}
+
+		if inst, ok := attrs.Get("service.instance.id"); ok {
+			attrs.PutStr("prometheus.instance", inst.AsString())
+		}
+	}
+}
+
 func TestTranslateV2(t *testing.T) {
 	prwReceiver := setupMetricsReceiver(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -2308,6 +2333,7 @@ func TestTranslateV2(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+			addPrometheusAttributes(tc.expectedMetrics)
 			assert.NoError(t, pmetrictest.CompareMetrics(tc.expectedMetrics, metrics))
 			assert.Equal(t, tc.expectedStats, stats)
 			assert.Equal(t, buildMetaDataMapByID(tc.expectedMetrics), buildMetaDataMapByID(metrics))
@@ -2440,6 +2466,7 @@ func TestTargetInfoWithMultipleRequests(t *testing.T) {
 			// Only one metric should be emitted
 			assert.Len(t, mockConsumer.metrics, 1)
 			// index 0 is related to the join between the target_info and the normal metric.
+			addPrometheusAttributes(expectedIndex0)
 			assert.NoError(t, pmetrictest.CompareMetrics(expectedIndex0, mockConsumer.metrics[0]))
 		})
 	}
@@ -2636,10 +2663,13 @@ func TestLRUCacheResourceMetrics(t *testing.T) {
 	}
 
 	// As target_info and metric1 have the same job/instance, they generate the same end metric: mockConsumer.metrics[0].
+	addPrometheusAttributes(expectedMetrics1)
 	assert.NoError(t, pmetrictest.CompareMetrics(expectedMetrics1, mockConsumer.metrics[0]))
 	// As metric2 have different job/instance, it generates a different end metric: mockConsumer.metrics[1]. At this point, the cache is full it should evict the target_info metric to store the metric2.
+	addPrometheusAttributes(expectedMetrics2)
 	assert.NoError(t, pmetrictest.CompareMetrics(expectedMetrics2, mockConsumer.metrics[1]))
 	// As just have 1 slot in the cache, but the cache for metric1 was evicted, this metric1_1 should generate a new resource metric, even having the same job/instance than the metric1.
+	addPrometheusAttributes(expectedMetrics1_1)
 	assert.NoError(t, pmetrictest.CompareMetrics(expectedMetrics1_1, mockConsumer.metrics[2]))
 }
 

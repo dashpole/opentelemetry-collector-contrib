@@ -21,6 +21,9 @@ func resourceSignature(attributes pcommon.Map) string {
 }
 
 func extractInstance(attributes pcommon.Map) (string, bool) {
+	if inst, ok := attributes.Get("prometheus.instance"); ok {
+		return inst.AsString(), true
+	}
 	// Map service.instance.id to instance
 	if inst, ok := attributes.Get(string(conventions.ServiceInstanceIDKey)); ok {
 		return inst.AsString(), true
@@ -29,6 +32,9 @@ func extractInstance(attributes pcommon.Map) (string, bool) {
 }
 
 func extractJob(attributes pcommon.Map) (string, bool) {
+	if job, ok := attributes.Get("prometheus.job"); ok {
+		return job.AsString(), true
+	}
 	// Map service.name + service.namespace to job
 	if serviceName, ok := attributes.Get(string(conventions.ServiceNameKey)); ok {
 		job := serviceName.AsString()

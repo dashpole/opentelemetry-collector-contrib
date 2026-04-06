@@ -104,6 +104,8 @@ func createAttributes(resource pcommon.Resource, attributes pcommon.Map, scope p
 	resourceAttrs := resource.Attributes()
 	serviceName, haveServiceName := resourceAttrs.Get(string(conventions.ServiceNameKey))
 	instance, haveInstanceID := resourceAttrs.Get(string(conventions.ServiceInstanceIDKey))
+	promJob, havePromJob := resourceAttrs.Get("prometheus.job")
+	promInstance, havePromInstance := resourceAttrs.Get("prometheus.instance")
 
 	// Calculate the maximum possible number of labels we could return so we can preallocate l
 	maxLabelCount := attributes.Len() + len(externalLabels) + len(extras)/2
@@ -113,6 +115,14 @@ func createAttributes(resource pcommon.Resource, attributes pcommon.Map, scope p
 	}
 
 	if haveInstanceID {
+		maxLabelCount++
+	}
+
+	if havePromJob {
+		maxLabelCount++
+	}
+
+	if havePromInstance {
 		maxLabelCount++
 	}
 	// Scope info
@@ -156,16 +166,20 @@ func createAttributes(resource pcommon.Resource, attributes pcommon.Map, scope p
 		}
 	}
 
-	// Map service.name + service.namespace to job
-	if haveServiceName {
+	// Map prometheus.job to job, or fallback to service.name
+	if havePromJob {
+		l[model.JobLabel] = promJob.AsString()
+	} else if haveServiceName {
 		val := serviceName.AsString()
 		if serviceNamespace, ok := resourceAttrs.Get(string(conventions.ServiceNamespaceKey)); ok {
 			val = fmt.Sprintf("%s/%s", serviceNamespace.AsString(), val)
 		}
 		l[model.JobLabel] = val
 	}
-	// Map service.instance.id to instance
-	if haveInstanceID {
+	// Map prometheus.instance to instance, or fallback to service.instance.id
+	if havePromInstance {
+		l[model.InstanceLabel] = promInstance.AsString()
+	} else if haveInstanceID {
 		l[model.InstanceLabel] = instance.AsString()
 	}
 	for key, value := range externalLabels {
@@ -543,6 +557,8 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 		string(conventions.ServiceNamespaceKey),
 		string(conventions.ServiceNameKey),
 		string(conventions.ServiceInstanceIDKey),
+		"prometheus.job",
+		"prometheus.instance",
 	}
 	nonIdentifyingAttrsCount := attributes.Len()
 	for _, a := range identifyingAttrs {

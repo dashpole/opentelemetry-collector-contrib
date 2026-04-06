@@ -61,7 +61,7 @@ func TestTransactionCommitWithoutAdding(t *testing.T) {
 }
 
 func testTransactionCommitWithoutAdding(t *testing.T) {
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	assert.NoError(t, tr.Commit())
 }
 
@@ -70,7 +70,7 @@ func TestTransactionRollbackDoesNothing(t *testing.T) {
 }
 
 func testTransactionRollbackDoesNothing(t *testing.T) {
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	assert.NoError(t, tr.Rollback())
 }
 
@@ -79,7 +79,7 @@ func TestTransactionUpdateMetadataDoesNothing(t *testing.T) {
 }
 
 func testTransactionUpdateMetadataDoesNothing(t *testing.T) {
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.UpdateMetadata(0, labels.New(), metadata.Metadata{})
 	assert.NoError(t, err)
 }
@@ -90,7 +90,7 @@ func TestTransactionAppendNoTarget(t *testing.T) {
 
 func testTransactionAppendNoTarget(t *testing.T) {
 	badLabels := labels.FromStrings(model.MetricNameLabel, "counter_test")
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, badLabels, time.Now().Unix()*1000, 1.0)
 	assert.Error(t, err)
 }
@@ -104,7 +104,7 @@ func testTransactionAppendNoMetricName(t *testing.T) {
 		model.InstanceLabel: "localhost:8080",
 		model.JobLabel:      "test2",
 	})
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, jobNotFoundLb, time.Now().Unix()*1000, 1.0)
 	assert.ErrorIs(t, err, errMetricNameNotFound)
 	assert.ErrorIs(t, tr.Commit(), errNoDataToBuild)
@@ -115,7 +115,7 @@ func TestTransactionAppendEmptyMetricName(t *testing.T) {
 }
 
 func testTransactionAppendEmptyMetricName(t *testing.T) {
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, labels.FromMap(map[string]string{
 		model.InstanceLabel:   "localhost:8080",
 		model.JobLabel:        "test2",
@@ -130,7 +130,7 @@ func TestTransactionAppendResource(t *testing.T) {
 
 func testTransactionAppendResource(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, labels.FromMap(map[string]string{
 		model.InstanceLabel:   "localhost:8080",
 		model.JobLabel:        "test",
@@ -144,7 +144,7 @@ func testTransactionAppendResource(t *testing.T) {
 	}), time.Now().UnixMilli(), 1.0)
 	assert.NoError(t, err)
 	assert.NoError(t, tr.Commit())
-	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"))
+	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"), false)
 	mds := sink.AllMetrics()
 	require.Len(t, mds, 1)
 	gotResource := mds[0].ResourceMetrics().At(0).Resource()
@@ -157,7 +157,7 @@ func TestTransactionAppendMultipleResources(t *testing.T) {
 
 func testTransactionAppendMultipleResources(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, labels.FromMap(map[string]string{
 		model.InstanceLabel:   "localhost:8080",
 		model.JobLabel:        "test-1",
@@ -173,8 +173,8 @@ func testTransactionAppendMultipleResources(t *testing.T) {
 	assert.NoError(t, tr.Commit())
 
 	expectedResources := []pcommon.Resource{
-		CreateResource("test-1", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http")),
-		CreateResource("test-2", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http")),
+		CreateResource("test-1", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"), false),
+		CreateResource("test-2", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"), false),
 	}
 
 	mds := sink.AllMetrics()
@@ -204,7 +204,7 @@ func TestReceiverVersionAndNameAreAttached(t *testing.T) {
 
 func testReceiverVersionAndNameAreAttached(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 	_, err := tr.Append(0, labels.FromMap(map[string]string{
 		model.InstanceLabel:   "localhost:8080",
 		model.JobLabel:        "test",
@@ -213,7 +213,7 @@ func testReceiverVersionAndNameAreAttached(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NoError(t, tr.Commit())
 
-	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"))
+	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"), false)
 	mds := sink.AllMetrics()
 	require.Len(t, mds, 1)
 	gotResource := mds[0].ResourceMetrics().At(0).Resource()
@@ -231,7 +231,7 @@ func TestTransactionAppendDuplicateLabels(t *testing.T) {
 
 func testTransactionAppendDuplicateLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	dupLabels := labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -263,6 +263,7 @@ func testTransactionAppendHistogramNoLe(t *testing.T) {
 		nopObsRecv(t),
 		false,
 		true,
+		false,
 	)
 
 	goodLabels := labels.FromStrings(
@@ -297,6 +298,7 @@ func testTransactionAppendSummaryNoQuantile(t *testing.T) {
 		nopObsRecv(t),
 		false,
 		true,
+		false,
 	)
 
 	goodLabels := labels.FromStrings(
@@ -331,6 +333,7 @@ func testTransactionAppendValidAndInvalid(t *testing.T) {
 		nopObsRecv(t),
 		false,
 		true,
+		false,
 	)
 
 	// a valid counter
@@ -355,7 +358,7 @@ func testTransactionAppendValidAndInvalid(t *testing.T) {
 	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
 
 	assert.NoError(t, tr.Commit())
-	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"))
+	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"), false)
 	mds := sink.AllMetrics()
 	require.Len(t, mds, 1)
 	gotResource := mds[0].ResourceMetrics().At(0).Resource()
@@ -387,7 +390,7 @@ func testTransactionAppendWithEmptyLabelArrayFallbackToTargetLabels(t *testing.T
 		scrape.ContextWithTarget(t.Context(), scrapeTarget),
 		testMetadataStore(testMetadata))
 
-	tr := newTransaction(ctx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(ctx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.Append(0, labels.FromMap(map[string]string{
 		model.MetricNameLabel: "counter_test",
@@ -401,7 +404,7 @@ func TestAppendExemplarWithNoMetricName(t *testing.T) {
 
 func testAppendExemplarWithNoMetricName(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	labels := labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -418,7 +421,7 @@ func TestAppendExemplarWithEmptyMetricName(t *testing.T) {
 
 func testAppendExemplarWithEmptyMetricName(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	labels := labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -435,7 +438,7 @@ func TestAppendExemplarWithDuplicateLabels(t *testing.T) {
 
 func testAppendExemplarWithDuplicateLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	labels := labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -454,7 +457,7 @@ func TestAppendExemplarWithoutAddingMetric(t *testing.T) {
 
 func testAppendExemplarWithoutAddingMetric(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	labels := labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -472,7 +475,7 @@ func TestAppendExemplarWithNoLabels(t *testing.T) {
 
 func testAppendExemplarWithNoLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendExemplar(0, labels.EmptyLabels(), exemplar.Exemplar{Value: 0})
 	assert.Equal(t, errNoJobInstance, err)
@@ -484,7 +487,7 @@ func TestAppendExemplarWithEmptyLabelArray(t *testing.T) {
 
 func testAppendExemplarWithEmptyLabelArray(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendExemplar(0, labels.FromStrings(), exemplar.Exemplar{Value: 0})
 	assert.Equal(t, errNoJobInstance, err)
@@ -492,7 +495,7 @@ func testAppendExemplarWithEmptyLabelArray(t *testing.T) {
 
 func TestAppendSTZeroSampleNoLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendSTZeroSample(0, labels.FromStrings(), 0, 100)
 	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
@@ -500,7 +503,7 @@ func TestAppendSTZeroSampleNoLabels(t *testing.T) {
 
 func TestAppendHistogramCTZeroSampleNoLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendHistogramSTZeroSample(0, labels.FromStrings(), 0, 100, nil, nil)
 	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
@@ -508,7 +511,7 @@ func TestAppendHistogramCTZeroSampleNoLabels(t *testing.T) {
 
 func TestAppendSTZeroSampleDuplicateLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendSTZeroSample(0, labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -522,7 +525,7 @@ func TestAppendSTZeroSampleDuplicateLabels(t *testing.T) {
 
 func TestAppendHistogramCTZeroSampleDuplicateLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendHistogramSTZeroSample(0, labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -536,7 +539,7 @@ func TestAppendHistogramCTZeroSampleDuplicateLabels(t *testing.T) {
 
 func TestAppendSTZeroSampleEmptyMetricName(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendSTZeroSample(0, labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -548,7 +551,7 @@ func TestAppendSTZeroSampleEmptyMetricName(t *testing.T) {
 
 func TestAppendHistogramCTZeroSampleEmptyMetricName(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	_, err := tr.AppendHistogramSTZeroSample(0, labels.FromStrings(
 		model.InstanceLabel, "0.0.0.0:8855",
@@ -560,7 +563,7 @@ func TestAppendHistogramCTZeroSampleEmptyMetricName(t *testing.T) {
 
 func TestAppendSTZeroSample(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	var atMs, ctMs int64
 	atMs, ctMs = 200, 100
@@ -579,7 +582,7 @@ func TestAppendSTZeroSample(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.NoError(t, tr.Commit())
-	expectedResource := CreateResource("test", "0.0.0.0:8855", labels.FromStrings(model.SchemeLabel, "http"))
+	expectedResource := CreateResource("test", "0.0.0.0:8855", labels.FromStrings(model.SchemeLabel, "http"), false)
 	mds := sink.AllMetrics()
 	require.Len(t, mds, 1)
 	gotResource := mds[0].ResourceMetrics().At(0).Resource()
@@ -594,7 +597,7 @@ func TestAppendSTZeroSample(t *testing.T) {
 
 func TestAppendHistogramCTZeroSample(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 
 	var atMs, ctMs int64
 	atMs, ctMs = 200, 100
@@ -614,7 +617,7 @@ func TestAppendHistogramCTZeroSample(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.NoError(t, tr.Commit())
-	expectedResource := CreateResource("test", "0.0.0.0:8855", labels.FromStrings(model.SchemeLabel, "http"))
+	expectedResource := CreateResource("test", "0.0.0.0:8855", labels.FromStrings(model.SchemeLabel, "http"), false)
 	mds := sink.AllMetrics()
 	require.Len(t, mds, 1)
 	gotResource := mds[0].ResourceMetrics().At(0).Resource()
@@ -1900,7 +1903,7 @@ func (tt buildTestData) run(t *testing.T) {
 	st := ts
 	for i, page := range tt.inputs {
 		sink := new(consumertest.MetricsSink)
-		tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+		tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true, false)
 		for _, pt := range page.pts {
 			// set ts for testing
 			pt.t = st
@@ -2083,7 +2086,7 @@ func TestAddTargetInfo_DoesNotCopyJobInstanceOrMetricName(t *testing.T) {
 	tr := newTxn(t, false)
 	rk := resourceKey{job: "job-a", instance: "localhost:1234"}
 	// Prime nodeResources
-	tr.nodeResources[rk] = CreateResource(rk.job, rk.instance, labels.FromStrings(model.SchemeLabel, "http"))
+	tr.nodeResources[rk] = CreateResource(rk.job, rk.instance, labels.FromStrings(model.SchemeLabel, "http"), false)
 
 	ls := labels.FromStrings(
 		string(model.MetricNameLabel), "target_info",
@@ -2132,5 +2135,5 @@ func newTxn(t *testing.T, useMetadata bool) *transaction {
 	settings := receivertest.NewNopSettings(receivertest.NopType)
 	// quiet logger
 	settings.Logger = zap.NewNop()
-	return newTransaction(ctx, sink, labels.EmptyLabels(), settings, newObs(t), false, useMetadata)
+	return newTransaction(ctx, sink, labels.EmptyLabels(), settings, newObs(t), false, useMetadata, false)
 }

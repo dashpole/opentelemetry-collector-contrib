@@ -64,6 +64,7 @@ type transaction struct {
 	obsrecv               *receiverhelper.ObsReport
 	// Used as buffer to calculate series ref hash.
 	bufBytes []byte
+	disableDefaultServiceMapping bool
 }
 
 var emptyScopeID scopeID
@@ -83,6 +84,7 @@ func newTransaction(
 	obsrecv *receiverhelper.ObsReport,
 	trimSuffixes bool,
 	useMetadata bool,
+	disableDefaultServiceMapping bool,
 ) *transaction {
 	return &transaction{
 		ctx:                   ctx,
@@ -99,6 +101,7 @@ func newTransaction(
 		scopeAttributes:       make(map[resourceKey]map[scopeID]pcommon.Map),
 		ignoreScopeInfoMetric: mdata.ReceiverPrometheusreceiverIgnoreScopeInfoMetricFeatureGate.IsEnabled(),
 		nodeResources:         map[resourceKey]pcommon.Resource{},
+		disableDefaultServiceMapping: disableDefaultServiceMapping,
 	}
 }
 
@@ -558,7 +561,7 @@ func (t *transaction) initTransaction(lbs labels.Labels) (*resourceKey, error) {
 		return nil, err
 	}
 	if _, ok := t.nodeResources[*rKey]; !ok {
-		t.nodeResources[*rKey] = CreateResource(rKey.job, rKey.instance, target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())))
+		t.nodeResources[*rKey] = CreateResource(rKey.job, rKey.instance, target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())), t.disableDefaultServiceMapping)
 	}
 
 	t.isNew = false

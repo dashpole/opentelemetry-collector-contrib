@@ -199,6 +199,7 @@ func newBenchmarkTransaction(b *testing.B) *transaction {
 		obsrecv,
 		false, // trimSuffixes
 		false, // useMetadata
+		false, // disableDefaultServiceMapping
 	)
 
 	// Set a mock MetricMetadataStore to avoid nil pointer issues
