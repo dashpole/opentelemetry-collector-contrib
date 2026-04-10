@@ -276,6 +276,11 @@ func (mc *MockMetricConsumer) MockConsumeMetricData(metricsCount int) error {
 	return nil
 }
 
+func (lc *MockLogConsumer) MockConsumeLogData(logCount int) error {
+	lc.numLogRecordsReceived.Add(uint64(logCount))
+	return nil
+}
+
 type MockLogConsumer struct {
 	numLogRecordsReceived atomic.Uint64
 	backend               *MockBackend

@@ -96,21 +96,21 @@ func (v *PerfTestValidator) RecordResults(tc *TestCase) {
 	testName := tc.t.Name()[4:]
 
 	performanceResults := &PerformanceTestResult{
-		testName:          testName,
-		result:            result,
-		receivedSpanCount: tc.MockBackend.DataItemsReceived(),
-		sentSpanCount:     tc.LoadGenerator.DataItemsSent(),
-		duration:          time.Since(tc.startTime),
-		cpuPercentageAvg:  rc.CPUPercentAvg,
-		cpuPercentageMax:  rc.CPUPercentMax,
-		ramMibAvg:         rc.RAMMiBAvg,
-		ramMibMax:         rc.RAMMiBMax,
-		errorCause:        tc.errorCause,
+		TestName:          testName,
+		Result:            result,
+		ReceivedSpanCount: tc.MockBackend.DataItemsReceived(),
+		SentSpanCount:     tc.LoadGenerator.DataItemsSent(),
+		Duration:          time.Since(tc.startTime),
+		CpuPercentageAvg:  rc.CPUPercentAvg,
+		CpuPercentageMax:  rc.CPUPercentMax,
+		RamMibAvg:         rc.RAMMiBAvg,
+		RamMibMax:         rc.RAMMiBMax,
+		ErrorCause:        tc.errorCause,
 	}
 
 	if v.IncludeLimitsInReport {
-		performanceResults.cpuPercentageLimit = rc.CPUPercentLimit
-		performanceResults.ramMibLimit = rc.RAMMiBLimit
+		performanceResults.CpuPercentageLimit = rc.CPUPercentLimit
+		performanceResults.RamMibLimit = rc.RAMMiBLimit
 	}
 
 	tc.resultsSummary.Add(tc.t.Name(), performanceResults)
@@ -633,15 +633,15 @@ func (*CorrectnessLogTestValidator) RecordResults(tc *TestCase) {
 	testName := tc.t.Name()[4:]
 
 	tc.resultsSummary.Add(tc.t.Name(), &PerformanceTestResult{
-		testName:          testName,
-		result:            result,
-		receivedSpanCount: tc.MockBackend.DataItemsReceived(),
-		sentSpanCount:     tc.LoadGenerator.DataItemsSent(),
-		duration:          time.Since(tc.startTime),
-		cpuPercentageAvg:  rc.CPUPercentAvg,
-		cpuPercentageMax:  rc.CPUPercentMax,
-		ramMibAvg:         rc.RAMMiBAvg,
-		ramMibMax:         rc.RAMMiBMax,
-		errorCause:        tc.errorCause,
+		TestName:          testName,
+		Result:            result,
+		ReceivedSpanCount: tc.MockBackend.DataItemsReceived(),
+		SentSpanCount:     tc.LoadGenerator.DataItemsSent(),
+		Duration:          time.Since(tc.startTime),
+		CpuPercentageAvg:  rc.CPUPercentAvg,
+		CpuPercentageMax:  rc.CPUPercentMax,
+		RamMibAvg:         rc.RAMMiBAvg,
+		RamMibMax:         rc.RAMMiBMax,
+		ErrorCause:        tc.errorCause,
 	})
 }

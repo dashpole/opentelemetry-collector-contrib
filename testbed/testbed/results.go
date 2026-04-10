@@ -51,18 +51,18 @@ type PerformanceResults struct {
 
 // PerformanceTestResult reports the results of a single performance test.
 type PerformanceTestResult struct {
-	testName           string
-	result             string
-	duration           time.Duration
-	cpuPercentageAvg   float64
-	cpuPercentageMax   float64
-	cpuPercentageLimit float64
-	ramMibAvg          uint32
-	ramMibMax          uint32
-	ramMibLimit        uint32
-	sentSpanCount      uint64
-	receivedSpanCount  uint64
-	errorCause         string
+	TestName           string
+	Result             string
+	Duration           time.Duration
+	CpuPercentageAvg   float64
+	CpuPercentageMax   float64
+	CpuPercentageLimit float64
+	RamMibAvg          uint32
+	RamMibMax          uint32
+	RamMibLimit        uint32
+	SentSpanCount      uint64
+	ReceivedSpanCount  uint64
+	ErrorCause         string
 }
 
 func (r *PerformanceResults) Init(resultsDir string) {
@@ -107,43 +107,43 @@ func (r *PerformanceResults) Add(_ string, result any) {
 
 	_, _ = fmt.Fprintf(r.resultsFile,
 		"%-40s|%-6s|%7.0fs|%8.1f|%8.1f|%8.1f|%11d|%11d|%11d|%10d|%14d|%s\n",
-		testResult.testName,
-		testResult.result,
-		testResult.duration.Seconds(),
-		testResult.cpuPercentageAvg,
-		testResult.cpuPercentageMax,
-		testResult.cpuPercentageLimit,
-		testResult.ramMibAvg,
-		testResult.ramMibMax,
-		testResult.ramMibLimit,
-		testResult.sentSpanCount,
-		testResult.receivedSpanCount,
-		testResult.errorCause,
+		testResult.TestName,
+		testResult.Result,
+		testResult.Duration.Seconds(),
+		testResult.CpuPercentageAvg,
+		testResult.CpuPercentageMax,
+		testResult.CpuPercentageLimit,
+		testResult.RamMibAvg,
+		testResult.RamMibMax,
+		testResult.RamMibLimit,
+		testResult.SentSpanCount,
+		testResult.ReceivedSpanCount,
+		testResult.ErrorCause,
 	)
-	r.totalDuration += testResult.duration
+	r.totalDuration += testResult.Duration
 
 	// individual benchmark results
-	cpuChartName := fmt.Sprintf("%s - Cpu Percentage", testResult.testName)
-	memoryChartName := fmt.Sprintf("%s - RAM (MiB)", testResult.testName)
-	droppedSpansChartName := fmt.Sprintf("%s - Dropped Span Count", testResult.testName)
+	cpuChartName := fmt.Sprintf("%s - Cpu Percentage", testResult.TestName)
+	memoryChartName := fmt.Sprintf("%s - RAM (MiB)", testResult.TestName)
+	droppedSpansChartName := fmt.Sprintf("%s - Dropped Span Count", testResult.TestName)
 
 	r.benchmarkResults = append(r.benchmarkResults,
 		&benchmarkResult{
 			Name:  "cpu_percentage_avg",
-			Value: testResult.cpuPercentageAvg,
+			Value: testResult.CpuPercentageAvg,
 			Unit:  "%",
 			Extra: cpuChartName,
 		},
 		&benchmarkResult{
 			Name:  "cpu_percentage_max",
-			Value: testResult.cpuPercentageMax,
+			Value: testResult.CpuPercentageMax,
 			Unit:  "%",
 			Extra: cpuChartName,
 		})
-	if testResult.cpuPercentageLimit > 0 {
+	if testResult.CpuPercentageLimit > 0 {
 		r.benchmarkResults = append(r.benchmarkResults, &benchmarkResult{
 			Name:  "cpu_percentage_limit",
-			Value: testResult.cpuPercentageLimit,
+			Value: testResult.CpuPercentageLimit,
 			Unit:  "%",
 			Extra: cpuChartName,
 		})
@@ -151,27 +151,27 @@ func (r *PerformanceResults) Add(_ string, result any) {
 	r.benchmarkResults = append(r.benchmarkResults,
 		&benchmarkResult{
 			Name:  "ram_mib_avg",
-			Value: float64(testResult.ramMibAvg),
+			Value: float64(testResult.RamMibAvg),
 			Unit:  "MiB",
 			Extra: memoryChartName,
 		},
 		&benchmarkResult{
 			Name:  "ram_mib_max",
-			Value: float64(testResult.ramMibMax),
+			Value: float64(testResult.RamMibMax),
 			Unit:  "MiB",
 			Extra: memoryChartName,
 		})
-	if testResult.ramMibLimit > 0 {
+	if testResult.RamMibLimit > 0 {
 		r.benchmarkResults = append(r.benchmarkResults, &benchmarkResult{
 			Name:  "ram_mib_limit",
-			Value: float64(testResult.ramMibLimit),
+			Value: float64(testResult.RamMibLimit),
 			Unit:  "MiB",
 			Extra: memoryChartName,
 		})
 	}
 	r.benchmarkResults = append(r.benchmarkResults, &benchmarkResult{
 		Name:  "dropped_span_count",
-		Value: float64(testResult.sentSpanCount - testResult.receivedSpanCount),
+		Value: float64(testResult.SentSpanCount - testResult.ReceivedSpanCount),
 		Unit:  "spans",
 		Extra: droppedSpansChartName,
 	})
