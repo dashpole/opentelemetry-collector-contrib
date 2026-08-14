@@ -95,6 +95,18 @@ var mc = testMetadataStore{
 		Help:         "This is some help for a summary",
 		Unit:         "ms",
 	},
+	"histogram_inconsistent_ts": scrape.MetricMetadata{
+		MetricFamily: "histogram_inconsistent_ts",
+		Type:         model.MetricTypeHistogram,
+		Help:         "This is some help for a histogram",
+		Unit:         "ms",
+	},
+	"summary with inconsistent timestamps": scrape.MetricMetadata{
+		MetricFamily: "summary with inconsistent timestamps",
+		Type:         model.MetricTypeSummary,
+		Help:         "This is some help for a summary",
+		Unit:         "ms",
+	},
 	"unknown": scrape.MetricMetadata{
 		MetricFamily: "u",
 		Type:         model.MetricTypeUnknown,

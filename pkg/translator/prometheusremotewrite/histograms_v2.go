@@ -38,9 +38,13 @@ func explicitToNHCBHistogramV2(pt pmetric.HistogramDataPoint) (writev2.Histogram
 	}
 	switch {
 	case h != nil:
-		return writev2.FromIntHistogram(timestamp, h), nil
+		hist := writev2.FromIntHistogram(timestamp, h)
+		hist.StartTimestamp = convertTimeStamp(pt.StartTimestamp())
+		return hist, nil
 	case fh != nil:
-		return writev2.FromFloatHistogram(timestamp, fh), nil
+		hist := writev2.FromFloatHistogram(timestamp, fh)
+		hist.StartTimestamp = convertTimeStamp(pt.StartTimestamp())
+		return hist, nil
 	default:
 		return writev2.Histogram{}, errors.New("convertnhcb produced neither an integer nor a float histogram")
 	}
@@ -121,7 +125,8 @@ func exponentialToNativeHistogramV2(p pmetric.ExponentialHistogramDataPoint) (wr
 		NegativeSpans:  nSpans,
 		NegativeDeltas: nDeltas,
 
-		Timestamp: convertTimeStamp(p.Timestamp()),
+		Timestamp:      convertTimeStamp(p.Timestamp()),
+		StartTimestamp: convertTimeStamp(p.StartTimestamp()),
 	}
 
 	if p.Flags().NoRecordedValue() {

@@ -5,6 +5,7 @@ package internal // import "github.com/open-telemetry/opentelemetry-collector-co
 
 import (
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -95,7 +96,7 @@ func getSortedNotUsefulLabelsForSeries(mType pmetric.MetricType, ls labels.Label
 
 func timestampFromFloat64(ts float64) pcommon.Timestamp {
 	secs := int64(ts)
-	nanos := int64((ts - float64(secs)) * 1e9)
+	nanos := int64(math.Round((ts - float64(secs)) * 1e9))
 	return pcommon.Timestamp(secs*1e9 + nanos)
 }
 

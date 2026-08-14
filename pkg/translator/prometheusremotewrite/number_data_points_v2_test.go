@@ -297,7 +297,7 @@ func TestPrometheusConverterV2_addSumNumberDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						LabelsRefs: []uint32{1, 2},
 						Samples: []writev2.Sample{
-							{Value: 1, Timestamp: convertTimeStamp(ts)},
+							{Value: 1, Timestamp: convertTimeStamp(ts), StartTimestamp: convertTimeStamp(ts)},
 						},
 						Metadata: writev2.Metadata{
 							Type:    writev2.Metadata_METRIC_TYPE_COUNTER,

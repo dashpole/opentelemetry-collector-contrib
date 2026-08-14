@@ -193,7 +193,7 @@ func TestPrometheusConverterV2_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						LabelsRefs: []uint32{1, 3},
 						Samples: []writev2.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(ts), StartTimestamp: convertTimeStamp(ts)},
 						},
 						Metadata: writev2.Metadata{
 							Type:    writev2.Metadata_METRIC_TYPE_SUMMARY,
@@ -203,7 +203,7 @@ func TestPrometheusConverterV2_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(sumLabels): {
 						LabelsRefs: []uint32{1, 2},
 						Samples: []writev2.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(ts), StartTimestamp: convertTimeStamp(ts)},
 						},
 						Metadata: writev2.Metadata{
 							Type:    writev2.Metadata_METRIC_TYPE_SUMMARY,
@@ -319,7 +319,7 @@ func TestPrometheusConverterV2_AddHistogramDataPoints(t *testing.T) {
 					timeSeriesSignature(infLabels): {
 						LabelsRefs: []uint32{1, 3, 4, 5},
 						Samples: []writev2.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(ts), StartTimestamp: convertTimeStamp(ts)},
 						},
 						Metadata: writev2.Metadata{
 							Type:    writev2.Metadata_METRIC_TYPE_HISTOGRAM,
@@ -329,7 +329,7 @@ func TestPrometheusConverterV2_AddHistogramDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						LabelsRefs: []uint32{1, 2},
 						Samples: []writev2.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(ts), StartTimestamp: convertTimeStamp(ts)},
 						},
 						Metadata: writev2.Metadata{
 							Type:    writev2.Metadata_METRIC_TYPE_HISTOGRAM,
@@ -705,6 +705,7 @@ func TestPrometheusConverterV2_AddSampleWithLabels(t *testing.T) {
 			converter.addSampleWithLabels(
 				tt.sampleValue,
 				tt.timestamp,
+				0,
 				tt.noRecordedValue,
 				tt.baseName,
 				tt.baseLabels,

@@ -35,7 +35,8 @@ func (c *prometheusConverterV2) addGaugeNumberDataPoints(dataPoints pmetric.Numb
 		}
 		sample := &writev2.Sample{
 			// convert ns to ms
-			Timestamp: convertTimeStamp(pt.Timestamp()),
+			Timestamp:      convertTimeStamp(pt.Timestamp()),
+			StartTimestamp: convertTimeStamp(pt.StartTimestamp()),
 		}
 		switch pt.ValueType() {
 		case pmetric.NumberDataPointValueTypeInt:
@@ -67,7 +68,8 @@ func (c *prometheusConverterV2) addSumNumberDataPoints(dataPoints pmetric.Number
 
 		sample := &writev2.Sample{
 			// convert ns to ms
-			Timestamp: convertTimeStamp(pt.Timestamp()),
+			Timestamp:      convertTimeStamp(pt.Timestamp()),
+			StartTimestamp: convertTimeStamp(pt.StartTimestamp()),
 		}
 		switch pt.ValueType() {
 		case pmetric.NumberDataPointValueTypeInt:

@@ -567,6 +567,7 @@ func TestExponentialToNativeHistogramV2(t *testing.T) {
 					PositiveSpans:  []writev2.BucketSpan{{Offset: 2, Length: 2}},
 					PositiveDeltas: []int64{1, 0},
 					Timestamp:      500,
+					StartTimestamp: 100,
 				}
 			},
 		},
@@ -600,6 +601,7 @@ func TestExponentialToNativeHistogramV2(t *testing.T) {
 					PositiveSpans:  []writev2.BucketSpan{{Offset: 2, Length: 2}},
 					PositiveDeltas: []int64{1, 0},
 					Timestamp:      500,
+					StartTimestamp: 100,
 				}
 			},
 		},

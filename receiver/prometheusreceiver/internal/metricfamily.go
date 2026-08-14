@@ -443,7 +443,21 @@ func populateAttributes(mType pmetric.MetricType, ls labels.Labels, dest pcommon
 	})
 }
 
+// goldenRatio64 is 2^64 / phi (approx. 11400714819323198485), used as a hash dispersion multiplier
+// in Fibonacci hashing to scatter consecutive integer timestamps across the 64-bit hash space.
+const goldenRatio64 = 0x9e3779b97f4a7c15
+
 func (mf *metricFamily) loadMetricGroupOrCreate(groupKey uint64, ls labels.Labels, ts int64) *metricGroup {
+	// For scalar metrics (Gauge and Sum), each scraped sample line is an independent data point.
+	// Mixing the timestamp into the group key allows multiple samples for the same series
+	// with distinct timestamps to coexist in a single scrape (e.g. in sorted samples compliance tests).
+	// For composite metrics (Histogram and Summary), multiple scraped lines (_count, _sum, _bucket)
+	// must share the same groupKey to merge into a single data point; timestamp consistency is validated in addSeries.
+	// TODO: Support multiple data points with distinct timestamps for composite types (Histogram and Summary)
+	// by validating complete bucket/count/sum assemblies per timestamp before emitting them.
+	if mf.mtype == pmetric.MetricTypeGauge || mf.mtype == pmetric.MetricTypeSum {
+		groupKey = groupKey ^ (uint64(ts) * goldenRatio64)
+	}
 	mg, ok := mf.groups[groupKey]
 	if !ok {
 		mg = &metricGroup{
@@ -641,7 +655,18 @@ func (mf *metricFamily) appendMetric(metrics pmetric.MetricSlice, trimSuffixes b
 }
 
 func (mf *metricFamily) addExemplar(seriesRef uint64, e exemplar.Exemplar) {
-	mg := mf.groups[seriesRef]
+	groupKey := seriesRef
+	// TODO: Support exemplar matching for multi-point composite types once supported.
+	if mf.mtype == pmetric.MetricTypeGauge || mf.mtype == pmetric.MetricTypeSum {
+		groupKey = seriesRef ^ (uint64(e.Ts) * goldenRatio64)
+	}
+	mg := mf.groups[groupKey]
+	if mg == nil {
+		// If exact timestamp didn't match, fall back to the most recent group
+		if len(mf.groupOrders) > 0 {
+			mg = mf.groupOrders[len(mf.groupOrders)-1]
+		}
+	}
 	if mg == nil {
 		return
 	}
