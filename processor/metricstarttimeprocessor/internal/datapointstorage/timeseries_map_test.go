@@ -450,6 +450,48 @@ func TestTimeseriesInfo_IsResetExponentialHistogram(t *testing.T) {
 			},
 			expectedReset: false,
 		},
+		{
+			name: "Positive Bucket Offset Mismatch",
+			setupTsi: func() *TimeseriesInfo {
+				tsi := &TimeseriesInfo{}
+				tsi.ExponentialHistogram = ExponentialHistogramInfo{PreviousCount: 10, PreviousSum: 50}
+				tsi.ExponentialHistogram.PreviousPositive = ExponentialHistogramBucketInfo{
+					Offset:       1,
+					BucketCounts: []uint64{1, 2, 3, 4},
+				}
+				return tsi
+			},
+			setupEh: func() pmetric.ExponentialHistogramDataPoint {
+				eh := pmetric.NewExponentialHistogramDataPoint()
+				eh.SetCount(15)
+				eh.SetSum(60)
+				eh.Positive().SetOffset(2)
+				eh.Positive().BucketCounts().FromRaw([]uint64{1, 2, 3, 4})
+				return eh
+			},
+			expectedReset: true,
+		},
+		{
+			name: "Negative Bucket Offset Mismatch",
+			setupTsi: func() *TimeseriesInfo {
+				tsi := &TimeseriesInfo{}
+				tsi.ExponentialHistogram = ExponentialHistogramInfo{PreviousCount: 10, PreviousSum: 50}
+				tsi.ExponentialHistogram.PreviousNegative = ExponentialHistogramBucketInfo{
+					Offset:       -1,
+					BucketCounts: []uint64{1, 2, 3, 4},
+				}
+				return tsi
+			},
+			setupEh: func() pmetric.ExponentialHistogramDataPoint {
+				eh := pmetric.NewExponentialHistogramDataPoint()
+				eh.SetCount(15)
+				eh.SetSum(60)
+				eh.Negative().SetOffset(-2)
+				eh.Negative().BucketCounts().FromRaw([]uint64{1, 2, 3, 4})
+				return eh
+			},
+			expectedReset: true,
+		},
 	}
 
 	for _, tt := range tests {

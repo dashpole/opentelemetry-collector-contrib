@@ -220,12 +220,18 @@ func (ref *TimeseriesInfo) IsResetExponentialHistogram(eh pmetric.ExponentialHis
 	if len(ref.ExponentialHistogram.PreviousPositive.BucketCounts) != eh.Positive().BucketCounts().Len() {
 		return true
 	}
+	if len(ref.ExponentialHistogram.PreviousPositive.BucketCounts) > 0 && ref.ExponentialHistogram.PreviousPositive.Offset != eh.Positive().Offset() {
+		return true
+	}
 	for i := range len(ref.ExponentialHistogram.PreviousPositive.BucketCounts) {
 		if eh.Positive().BucketCounts().At(i) < ref.ExponentialHistogram.PreviousPositive.BucketCounts[i] {
 			return true
 		}
 	}
 	if len(ref.ExponentialHistogram.PreviousNegative.BucketCounts) != eh.Negative().BucketCounts().Len() {
+		return true
+	}
+	if len(ref.ExponentialHistogram.PreviousNegative.BucketCounts) > 0 && ref.ExponentialHistogram.PreviousNegative.Offset != eh.Negative().Offset() {
 		return true
 	}
 	for i := range len(ref.ExponentialHistogram.PreviousNegative.BucketCounts) {

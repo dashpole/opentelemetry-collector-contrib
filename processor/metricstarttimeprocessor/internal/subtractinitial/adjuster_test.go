@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/metricstarttimeprocessor/internal/datapointstorage"
 	"github.com/open-telemetry/opentelemetry-collector-contrib/processor/metricstarttimeprocessor/internal/testhelper"
 )
 
@@ -947,4 +948,91 @@ func TestJobGC(t *testing.T) {
 	time.Sleep(5 * time.Second) // Wait for the goroutine to complete.
 	// run job 1, round 2 - verify that all job 1 timeseries have been gc'd
 	testhelper.RunScript(t, ma, job1Script2, "0")
+}
+
+func TestHistogramMalformedBucketUnderflow(t *testing.T) {
+	script := []*testhelper.MetricsAdjusterTest{
+		{
+			Description: "Histogram: round 1 - initial instance, start time established",
+			Metrics:     testhelper.Metrics(testhelper.HistogramMetric(histogram1, testhelper.HistogramPoint(k1v1k2v2, t1, t1, bounds0, []uint64{5, 5, 5, 5}))),
+			Adjusted:    testhelper.Metrics(testhelper.HistogramMetric(histogram1)),
+		},
+		{
+			Description: "Histogram: round 2 - bucket count decrease (malformed/torn scrape) triggers reset without underflow",
+			Metrics:     testhelper.Metrics(testhelper.HistogramMetric(histogram1, testhelper.HistogramPoint(k1v1k2v2, t2, t2, bounds0, []uint64{4, 6, 6, 6}))),
+			Adjusted:    testhelper.Metrics(testhelper.HistogramMetric(histogram1, testhelper.HistogramPoint(k1v1k2v2, t1, t2, bounds0, []uint64{4, 6, 6, 6}))),
+		},
+		{
+			Description: "Histogram: round 3 - normal progress after reset",
+			Metrics:     testhelper.Metrics(testhelper.HistogramMetric(histogram1, testhelper.HistogramPoint(k1v1k2v2, t3, t3, bounds0, []uint64{6, 8, 8, 8}))),
+			Adjusted:    testhelper.Metrics(testhelper.HistogramMetric(histogram1, testhelper.HistogramPoint(k1v1k2v2, t1, t3, bounds0, []uint64{6, 8, 8, 8}))),
+		},
+	}
+	testhelper.RunScript(t, NewAdjuster(componenttest.NewNopTelemetrySettings(), time.Minute), script)
+}
+
+func TestSubtractHistogramDataPointUnderflowGuard(t *testing.T) {
+	h := testhelper.HistogramPoint(k1v1k2v2, t2, t2, bounds0, []uint64{0, 2, 4, 6})
+	h.SetCount(5)
+	h.SetSum(10.0)
+
+	ref := datapointstorage.HistogramInfo{
+		StartTime:       t1,
+		RefCount:        10,
+		RefSum:          20.0,
+		RefBucketCounts: []uint64{5, 5, 2, 2},
+	}
+
+	subtractHistogramDataPoint(h, ref)
+
+	assert.Equal(t, t1, h.StartTimestamp())
+	assert.Equal(t, uint64(0), h.Count())
+	assert.Equal(t, 0.0, h.Sum())
+	assert.Equal(t, []uint64{0, 0, 2, 4}, h.BucketCounts().AsRaw())
+}
+
+func TestSubtractExponentialHistogramDataPointUnderflowGuard(t *testing.T) {
+	eh := testhelper.ExponentialHistogramPoint(k1v1k2v2, t2, t2, 1, 2, 0, []uint64{1, 5}, 0, []uint64{1, 5})
+	eh.SetCount(5)
+	eh.SetSum(10.0)
+
+	ref := datapointstorage.ExponentialHistogramInfo{
+		StartTime:    t1,
+		RefCount:     10,
+		RefSum:       20.0,
+		RefZeroCount: 5,
+		RefPositive: datapointstorage.ExponentialHistogramBucketInfo{
+			Offset:       0,
+			BucketCounts: []uint64{5, 2},
+		},
+		RefNegative: datapointstorage.ExponentialHistogramBucketInfo{
+			Offset:       0,
+			BucketCounts: []uint64{4, 2},
+		},
+	}
+
+	subtractExponentialHistogramDataPoint(eh, ref)
+
+	assert.Equal(t, t1, eh.StartTimestamp())
+	assert.Equal(t, uint64(0), eh.Count())
+	assert.Equal(t, 0.0, eh.Sum())
+	assert.Equal(t, uint64(0), eh.ZeroCount())
+	assert.Equal(t, []uint64{0, 3}, eh.Positive().BucketCounts().AsRaw())
+	assert.Equal(t, []uint64{0, 3}, eh.Negative().BucketCounts().AsRaw())
+}
+
+func TestExponentialHistogramOffsetChangeReset(t *testing.T) {
+	script := []*testhelper.MetricsAdjusterTest{
+		{
+			Description: "Exponential Histogram: round 1 - initial instance, start time is established",
+			Metrics:     testhelper.Metrics(testhelper.ExponentialHistogramMetric(exponentialHistogram1, testhelper.ExponentialHistogramPoint(k1v1k2v2, t1, t1, 3, 1, 0, []uint64{}, 0, []uint64{4, 2, 3, 7}))),
+			Adjusted:    testhelper.Metrics(testhelper.ExponentialHistogramMetric(exponentialHistogram1)),
+		},
+		{
+			Description: "Exponential Histogram: round 2 - offset shifted (boundary change triggers reset)",
+			Metrics:     testhelper.Metrics(testhelper.ExponentialHistogramMetric(exponentialHistogram1, testhelper.ExponentialHistogramPoint(k1v1k2v2, t2, t2, 3, 1, 0, []uint64{}, 1, []uint64{4, 2, 3, 7}))),
+			Adjusted:    testhelper.Metrics(testhelper.ExponentialHistogramMetric(exponentialHistogram1, testhelper.ExponentialHistogramPoint(k1v1k2v2, t1, t2, 3, 1, 0, []uint64{}, 1, []uint64{4, 2, 3, 7}))),
+		},
+	}
+	testhelper.RunScript(t, NewAdjuster(componenttest.NewNopTelemetrySettings(), time.Minute), script)
 }

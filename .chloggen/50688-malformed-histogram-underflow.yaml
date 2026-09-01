@@ -1,0 +1,9 @@
+change_type: bug_fix
+component: processor/metric_start_time
+note: Prevent arithmetic underflow in histogram subtraction and detect bucket offset resets
+issues: [50688]
+subtext: |
+  In `subtract_initial_point` mode, bucket subtraction now guards against uint64 underflow
+  when handling malformed histograms or torn scrapes, and exponential histogram bucket offset
+  changes are correctly recognized as resets.
+change_logs: [user]

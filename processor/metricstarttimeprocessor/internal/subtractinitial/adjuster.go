@@ -184,8 +184,14 @@ func adjustMetricExponentialHistogram(referenceValueTsm *datapointstorage.Timese
 
 			refTsi.ExponentialHistogram.RefCount, refTsi.ExponentialHistogram.RefSum, refTsi.ExponentialHistogram.RefZeroCount, refTsi.ExponentialHistogram.Scale = 0, 0, 0, currentDist.Scale()
 			refTsi.ExponentialHistogram.StartTime = resetStartTimeStamp
-			refTsi.ExponentialHistogram.RefPositive.BucketCounts = make([]uint64, currentDist.Positive().BucketCounts().Len())
-			refTsi.ExponentialHistogram.RefNegative.BucketCounts = make([]uint64, currentDist.Negative().BucketCounts().Len())
+			refTsi.ExponentialHistogram.RefPositive = datapointstorage.ExponentialHistogramBucketInfo{
+				Offset:       currentDist.Positive().Offset(),
+				BucketCounts: make([]uint64, currentDist.Positive().BucketCounts().Len()),
+			}
+			refTsi.ExponentialHistogram.RefNegative = datapointstorage.ExponentialHistogramBucketInfo{
+				Offset:       currentDist.Negative().Offset(),
+				BucketCounts: make([]uint64, currentDist.Negative().BucketCounts().Len()),
+			}
 			refTsi.ExponentialHistogram.PreviousPositive = datapointstorage.NewExponentialHistogramBucketInfo(currentDist.Positive())
 			refTsi.ExponentialHistogram.PreviousNegative = datapointstorage.NewExponentialHistogramBucketInfo(currentDist.Negative())
 			refTsi.ExponentialHistogram.PreviousCount, refTsi.ExponentialHistogram.PreviousSum, refTsi.ExponentialHistogram.PreviousZeroCount = currentDist.Count(), currentDist.Sum(), currentDist.ZeroCount()
@@ -292,8 +298,16 @@ func adjustMetricSummary(referenceValueTsm *datapointstorage.TimeseriesMap, metr
 			refTsi.Summary.PreviousCount, refTsi.Summary.PreviousSum = currentSummary.Count(), currentSummary.Sum()
 		} else {
 			refTsi.Summary.PreviousCount, refTsi.Summary.PreviousSum = currentSummary.Count(), currentSummary.Sum()
-			currentSummary.SetCount(currentSummary.Count() - refTsi.Summary.RefCount)
-			currentSummary.SetSum(currentSummary.Sum() - refTsi.Summary.RefSum)
+			if currentSummary.Count() >= refTsi.Summary.RefCount {
+				currentSummary.SetCount(currentSummary.Count() - refTsi.Summary.RefCount)
+			} else {
+				currentSummary.SetCount(0)
+			}
+			if currentSummary.Sum() >= refTsi.Summary.RefSum {
+				currentSummary.SetSum(currentSummary.Sum() - refTsi.Summary.RefSum)
+			} else {
+				currentSummary.SetSum(0)
+			}
 		}
 		return false
 	})
@@ -302,8 +316,16 @@ func adjustMetricSummary(referenceValueTsm *datapointstorage.TimeseriesMap, metr
 // subtractHistogramDataPoint subtracts b from a.
 func subtractHistogramDataPoint(a pmetric.HistogramDataPoint, ref datapointstorage.HistogramInfo) {
 	a.SetStartTimestamp(ref.StartTime)
-	a.SetCount(a.Count() - ref.RefCount)
-	a.SetSum(a.Sum() - ref.RefSum)
+	if a.Count() >= ref.RefCount {
+		a.SetCount(a.Count() - ref.RefCount)
+	} else {
+		a.SetCount(0)
+	}
+	if a.Sum() >= ref.RefSum {
+		a.SetSum(a.Sum() - ref.RefSum)
+	} else {
+		a.SetSum(0)
+	}
 	aBuckets := a.BucketCounts()
 	bBuckets := ref.RefBucketCounts
 	if len(bBuckets) != aBuckets.Len() {
@@ -312,7 +334,11 @@ func subtractHistogramDataPoint(a pmetric.HistogramDataPoint, ref datapointstora
 	}
 	newBuckets := make([]uint64, aBuckets.Len())
 	for i := 0; i < aBuckets.Len(); i++ {
-		newBuckets[i] = aBuckets.At(i) - bBuckets[i]
+		if aBuckets.At(i) >= bBuckets[i] {
+			newBuckets[i] = aBuckets.At(i) - bBuckets[i]
+		} else {
+			newBuckets[i] = 0
+		}
 	}
 	a.BucketCounts().FromRaw(newBuckets)
 }
@@ -320,9 +346,21 @@ func subtractHistogramDataPoint(a pmetric.HistogramDataPoint, ref datapointstora
 // subtractExponentialHistogramDataPoint subtracts b from a.
 func subtractExponentialHistogramDataPoint(a pmetric.ExponentialHistogramDataPoint, ref datapointstorage.ExponentialHistogramInfo) {
 	a.SetStartTimestamp(ref.StartTime)
-	a.SetCount(a.Count() - ref.RefCount)
-	a.SetSum(a.Sum() - ref.RefSum)
-	a.SetZeroCount(a.ZeroCount() - ref.RefZeroCount)
+	if a.Count() >= ref.RefCount {
+		a.SetCount(a.Count() - ref.RefCount)
+	} else {
+		a.SetCount(0)
+	}
+	if a.Sum() >= ref.RefSum {
+		a.SetSum(a.Sum() - ref.RefSum)
+	} else {
+		a.SetSum(0)
+	}
+	if a.ZeroCount() >= ref.RefZeroCount {
+		a.SetZeroCount(a.ZeroCount() - ref.RefZeroCount)
+	} else {
+		a.SetZeroCount(0)
+	}
 	if a.Positive().BucketCounts().Len() != len(ref.RefPositive.BucketCounts) ||
 		a.Negative().BucketCounts().Len() != len(ref.RefNegative.BucketCounts) {
 		// Post reset, the reference histogram will have no buckets.
@@ -339,10 +377,13 @@ func subtractExponentialBuckets(a pmetric.ExponentialHistogramDataPointBuckets, 
 	for i := 0; i < a.BucketCounts().Len(); i++ {
 		bOffset := i + offsetDiff
 		// if there is no corresponding bucket for the starting BucketCounts, don't normalize
-		if bOffset < 0 || bOffset >= len(b.BucketCounts) {
+		switch {
+		case bOffset < 0 || bOffset >= len(b.BucketCounts):
 			newBuckets[i] = a.BucketCounts().At(i)
-		} else {
+		case a.BucketCounts().At(i) >= b.BucketCounts[bOffset]:
 			newBuckets[i] = a.BucketCounts().At(i) - b.BucketCounts[bOffset]
+		default:
+			newBuckets[i] = 0
 		}
 	}
 	return newBuckets
