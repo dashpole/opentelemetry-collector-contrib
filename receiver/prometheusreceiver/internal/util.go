@@ -33,7 +33,6 @@ const (
 
 var (
 	trimmableSuffixes     = []string{metricsSuffixBucket, metricsSuffixCount, metricsSuffixSum, metricSuffixTotal, metricSuffixInfo, metricSuffixCreated}
-	errNoDataToBuild      = errors.New("there's no data to build")
 	errNoBoundaryLabel    = errors.New("given metricType has no 'le' or 'quantile' label")
 	errEmptyQuantileLabel = errors.New("'quantile' label on summary metric is missing or empty")
 	errEmptyLeLabel       = errors.New("'le' label on histogram metric is missing or empty")
@@ -56,7 +55,7 @@ func sortString(strs []string) []string {
 
 func getSortedNotUsefulLabels(mType pmetric.MetricType) []string {
 	switch mType {
-	case pmetric.MetricTypeHistogram:
+	case pmetric.MetricTypeHistogram, pmetric.MetricTypeExponentialHistogram:
 		return notUsefulLabelsHistogram
 	case pmetric.MetricTypeSummary:
 		return notUsefulLabelsSummary
@@ -68,21 +67,12 @@ func getSortedNotUsefulLabels(mType pmetric.MetricType) []string {
 func getSortedNotUsefulLabelsForSeries(mType pmetric.MetricType, ls labels.Labels) []string {
 	base := getSortedNotUsefulLabels(mType)
 	var exclusions []string
-	var seen map[string]struct{}
 	ls.Range(func(l labels.Label) {
 		if strings.HasPrefix(l.Name, prometheus.ScopeLabelPrefix) {
 			if exclusions == nil {
 				exclusions = make([]string, 0, len(base)+ls.Len())
 				exclusions = append(exclusions, base...)
-				seen = make(map[string]struct{}, len(base))
-				for _, name := range base {
-					seen[name] = struct{}{}
-				}
 			}
-			if _, ok := seen[l.Name]; ok {
-				return
-			}
-			seen[l.Name] = struct{}{}
 			exclusions = append(exclusions, l.Name)
 		}
 	})
@@ -156,6 +146,16 @@ func normalizeMetricName(name string) string {
 		if strings.HasSuffix(name, s) && name != s {
 			return strings.TrimSuffix(name, s)
 		}
+	}
+	return name
+}
+
+func normalizeSummaryName(name string) string {
+	if strings.HasSuffix(name, "_sum") && name != "_sum" {
+		return strings.TrimSuffix(name, "_sum")
+	}
+	if strings.HasSuffix(name, "_count") && name != "_count" {
+		return strings.TrimSuffix(name, "_count")
 	}
 	return name
 }

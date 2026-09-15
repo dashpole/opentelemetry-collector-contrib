@@ -189,6 +189,9 @@ func (m *Manager) sync(compareHash uint64, httpClient *http.Client) (uint64, err
 			return 0, err
 		}
 
+		b := true
+		scrapeConfig.ConvertClassicHistogramsToNHCB = &b
+
 		newConfigs = append(newConfigs, scrapeConfig)
 	}
 

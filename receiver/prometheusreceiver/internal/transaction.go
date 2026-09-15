@@ -5,16 +5,18 @@ package internal // import "github.com/open-telemetry/opentelemetry-collector-co
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/prometheus/prometheus/storage"
@@ -36,43 +38,62 @@ type resourceKey struct {
 	instance string
 }
 
-// The name of the metric family doesn't include magic suffixes (e.g. _bucket),
-// so for a classic histgram and a native histogram of the same family, the
-// metric family will be the same. To be able to tell them apart, we need to
-// store whether the metric is a native histogram or not.
-type metricFamilyKey struct {
-	isExponentialHistogram bool
-	name                   string
-}
-
-type transaction struct {
-	isNew                 bool
-	trimSuffixes          bool
-	useMetadata           bool
-	addingNativeHistogram bool // true if the last sample was a native histogram.
-	addingNHCB            bool // true if the last sample was a NHCB.
-	ctx                   context.Context
-	families              map[resourceKey]map[scopeID]map[metricFamilyKey]*metricFamily
-	mc                    scrape.MetricMetadataStore
-	sink                  consumer.Metrics
-	externalLabels        labels.Labels
-	nodeResources         map[resourceKey]pcommon.Resource
-	scopeAttributes       map[resourceKey]map[scopeID]pcommon.Map
-	ignoreScopeInfoMetric bool
-	logger                *zap.Logger
-	buildInfo             component.BuildInfo
-	obsrecv               *receiverhelper.ObsReport
-	// Used as buffer to calculate series ref hash.
-	bufBytes []byte
-}
-
-var emptyScopeID scopeID
-
 type scopeID struct {
 	name      string
 	version   string
 	schemaURL string
 	attrsHash [16]byte
+}
+
+type metricKey struct {
+	rKey       resourceKey
+	scope      scopeID
+	metricType pmetric.MetricType
+	metricName string
+}
+
+type dataPointKey struct {
+	rKey     resourceKey
+	baseName string
+	hash     uint64
+}
+
+type knownMetricTypeKey struct {
+	rKey       resourceKey
+	metricName string
+}
+
+var emptyScopeID scopeID
+
+type transaction struct {
+	ctx                   context.Context
+	sink                  consumer.Metrics
+	externalLabels        labels.Labels
+	logger                *zap.Logger
+	buildInfo             component.BuildInfo
+	obsrecv               *receiverhelper.ObsReport
+	trimSuffixes          bool
+	useMetadata           bool
+	ignoreScopeInfoMetric bool
+	mc                    scrape.MetricMetadataStore
+	knownMetricTypes      *sync.Map
+
+	md pmetric.Metrics
+
+	resources map[resourceKey]pmetric.ResourceMetrics
+	scopes    map[resourceKey]map[scopeID]pmetric.ScopeMetrics
+	metrics   map[metricKey]pmetric.Metric
+
+	nodeResources   map[resourceKey]pcommon.Resource
+	scopeAttributes map[resourceKey]map[scopeID]pcommon.Map
+
+	summaryAccumulator *summaryAccumulator
+
+	createdTimestamps     map[dataPointKey]pcommon.Timestamp
+	classicHistFamilies   map[string]bool
+	classicHistTimestamps map[uint64]int64
+
+	bufBytes []byte
 }
 
 func newTransaction(
@@ -83,415 +104,166 @@ func newTransaction(
 	obsrecv *receiverhelper.ObsReport,
 	trimSuffixes bool,
 	useMetadata bool,
+	knownTypes ...*sync.Map,
 ) *transaction {
+	var knownMetricTypes *sync.Map
+	if len(knownTypes) > 0 && knownTypes[0] != nil {
+		knownMetricTypes = knownTypes[0]
+	} else {
+		knownMetricTypes = new(sync.Map)
+	}
 	return &transaction{
 		ctx:                   ctx,
-		families:              make(map[resourceKey]map[scopeID]map[metricFamilyKey]*metricFamily),
-		isNew:                 true,
-		trimSuffixes:          trimSuffixes,
-		useMetadata:           useMetadata,
 		sink:                  sink,
 		externalLabels:        externalLabels,
 		logger:                settings.Logger,
 		buildInfo:             settings.BuildInfo,
 		obsrecv:               obsrecv,
-		bufBytes:              make([]byte, 0, 1024),
-		scopeAttributes:       make(map[resourceKey]map[scopeID]pcommon.Map),
+		trimSuffixes:          trimSuffixes,
+		useMetadata:           useMetadata,
 		ignoreScopeInfoMetric: mdata.ReceiverPrometheusreceiverIgnoreScopeInfoMetricFeatureGate.IsEnabled(),
-		nodeResources:         map[resourceKey]pcommon.Resource{},
+		knownMetricTypes:      knownMetricTypes,
+
+		md: pmetric.NewMetrics(),
+
+		resources: make(map[resourceKey]pmetric.ResourceMetrics),
+		scopes:    make(map[resourceKey]map[scopeID]pmetric.ScopeMetrics),
+		metrics:   make(map[metricKey]pmetric.Metric),
+
+		nodeResources: make(map[resourceKey]pcommon.Resource),
+
+		bufBytes: make([]byte, 0, 8192),
 	}
 }
 
-// append returns a stable series reference to enable Prometheus staleness tracking.
-func (t *transaction) append(ls labels.Labels, atMs int64, val float64) (storage.SeriesRef, error) {
-	t.addingNativeHistogram = false
-	t.addingNHCB = false
-
-	ls, rKey, metricName, err := t.prepareLabels(ls)
-	if err != nil {
-		return 0, err
-	}
-
-	return t.addSampleDatapoint(*rKey, ls, metricName, atMs, val, 0)
+type summaryAccumulator struct {
+	groupHashes map[metricKey][]uint64
+	summaries   map[metricKey]map[uint64]*summaryGroup
 }
 
-// addSampleDatapoint processes one scraped sample and stores it in the
-// appropriate metric family for the resource/scope context. It is shared by
-// both V1 and V2 appender paths.
-func (t *transaction) addSampleDatapoint(rKey resourceKey, ls labels.Labels, metricName string, atMs int64, val float64, stMs int64) (storage.SeriesRef, error) {
-	// See https://www.prometheus.io/docs/concepts/jobs_instances/#automatically-generated-labels-and-time-series
-	// up: 1 if the instance is healthy, i.e. reachable, or 0 if the scrape failed.
-	// But it can also be a staleNaN, which is inserted when the target goes away.
-	if metricName == scrapeUpMetricName && val != 1.0 && !value.IsStaleNaN(val) {
-		if val == 0.0 {
-			var scrapeErr error
-			if target, ok := scrape.TargetFromContext(t.ctx); ok {
-				scrapeErr = target.LastError()
-			}
-			if scrapeErr != nil {
-				t.logger.Warn("Failed to scrape Prometheus endpoint",
-					zap.Error(scrapeErr),
-					zap.Int64("scrape_timestamp", atMs),
-					zap.Stringer("target_labels", ls))
-			} else {
-				t.logger.Warn("Failed to scrape Prometheus endpoint",
-					zap.Int64("scrape_timestamp", atMs),
-					zap.Stringer("target_labels", ls))
-			}
-		} else {
-			t.logger.Warn("The 'up' metric contains invalid value",
-				zap.Float64("value", val),
-				zap.Int64("scrape_timestamp", atMs),
-				zap.Stringer("target_labels", ls))
-		}
-	}
-
-	// For the `target_info` metric we need to convert it to resource attributes.
-	if metricName == prometheus.TargetInfoMetricName {
-		t.AddTargetInfo(rKey, ls)
-		return 0, nil
-	}
-
-	// For the `otel_scope_info` metric we need to convert it to scope attributes.
-	if metricName == prometheus.ScopeInfoMetricName && !t.ignoreScopeInfoMetric {
-		t.addScopeInfo(rKey, ls)
-		return 0, nil
-	}
-
-	parsedScope, attrs := getScopeID(ls)
-	t.addScopeAttributesFromLabels(rKey, parsedScope, attrs)
-
-	if value.IsStaleNaN(val) {
-		if t.detectAndStoreNativeHistogramStaleness(atMs, rKey, parsedScope, metricName, ls) {
-			return 0, nil
-		}
-	}
-
-	curMF := t.getOrCreateMetricFamily(rKey, parsedScope, metricName)
-	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-
-	if stMs != 0 {
-		curMF.addCreationTimestamp(seriesRef, ls, atMs, stMs)
-	}
-
-	err := curMF.addSeries(seriesRef, metricName, ls, atMs, val)
-	if err != nil {
-		t.logger.Warn("failed to add datapoint", zap.Error(err), zap.String("metric_name", metricName), zap.Any("labels", ls))
-		// never return errors, as that fails the whole scrape
-		// return ref==0 indicating that the series was not added
-		return 0, nil
-	}
-
-	// never return errors, as that fails the whole scrape
-	// return a stable ref so Prometheus can track series staleness
-	return storage.SeriesRef(ls.Hash()), nil
+type summaryGroup struct {
+	ls        labels.Labels
+	atMs      int64
+	stMs      int64
+	hasSum    bool
+	sum       float64
+	hasCount  bool
+	count     float64
+	isStale   bool
+	quantiles []quantileValue
 }
 
-// detectAndStoreNativeHistogramStaleness returns true if it detects
-// and stores a native histogram staleness marker.
-func (t *transaction) detectAndStoreNativeHistogramStaleness(atMs int64, key resourceKey, scope scopeID, metricName string, ls labels.Labels) bool {
-	// Detect the special case of stale native histogram series.
-	// Currently Prometheus does not store the histogram type in
-	// its staleness tracker.
-	md, ok := t.mc.GetMetadata(metricName)
-	if !ok {
-		// Native histograms always have metadata.
-		return false
-	}
-	if md.Type != model.MetricTypeHistogram {
-		// Not a histogram.
-		return false
-	}
-	if md.MetricFamily != metricName {
-		// Not a native histogram because it has magic suffixes (e.g. _bucket).
-		return false
-	}
-	// Store the staleness marker as a native histogram.
-	t.addingNativeHistogram = true
-	t.addingNHCB = false
-
-	curMF := t.getOrCreateMetricFamily(key, scope, metricName)
-	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-
-	_ = curMF.addExponentialHistogramSeries(seriesRef, metricName, ls, atMs, &histogram.Histogram{Sum: math.Float64frombits(value.StaleNaN)}, nil)
-	// ignore errors here, this is best effort.
-
-	return true
+type quantileValue struct {
+	quantile float64
+	value    float64
 }
 
-// getOrCreateMetricFamily returns the metric family for the given metric name and scope,
-// and true if an existing family was found.
-func (t *transaction) getOrCreateMetricFamily(key resourceKey, scope scopeID, mn string) *metricFamily {
-	if _, ok := t.families[key]; !ok {
-		t.families[key] = make(map[scopeID]map[metricFamilyKey]*metricFamily)
-	}
-	if _, ok := t.families[key][scope]; !ok {
-		t.families[key][scope] = make(map[metricFamilyKey]*metricFamily)
-	}
-
-	mfKey := metricFamilyKey{isExponentialHistogram: t.addingNativeHistogram, name: mn}
-
-	curMf, ok := t.families[key][scope][mfKey]
-
-	if !ok {
-		fn := mn
-		if _, ok := t.mc.GetMetadata(mn); !ok {
-			fn = normalizeMetricName(mn)
-			// NB (eriksywu): see https://github.com/prometheus/prometheus/issues/14823
-			if isCounterCreatedLine(mn, fn, t.mc) {
-				fn += metricSuffixTotal
-			}
-			// END NB (eriksywu)
-		}
-		fnKey := metricFamilyKey{isExponentialHistogram: mfKey.isExponentialHistogram, name: fn}
-		mf, ok := t.families[key][scope][fnKey]
-		if !ok || !mf.includesMetric(mn) {
-			curMf = newMetricFamily(mn, t.mc, t.logger, t.addingNativeHistogram, t.addingNHCB)
-			t.families[key][scope][metricFamilyKey{isExponentialHistogram: mfKey.isExponentialHistogram, name: curMf.name}] = curMf
-			return curMf
-		}
-		curMf = mf
-	}
-	return curMf
-}
-
-func (t *transaction) appendExemplar(l labels.Labels, e exemplar.Exemplar) error {
-	select {
-	case <-t.ctx.Done():
-		return errTransactionAborted
-	default:
-	}
-
-	rKey, err := t.initTransaction(l)
-	if err != nil {
-		return err
-	}
-
-	l = l.WithoutEmpty()
-
-	if dupLabel, hasDup := l.HasDuplicateLabelNames(); hasDup {
-		return fmt.Errorf("invalid sample: non-unique label names: %q", dupLabel)
-	}
-
-	mn := l.Get(model.MetricNameLabel)
-	if mn == "" {
-		return errMetricNameNotFound
-	}
-
-	scope, attrs := getScopeID(l)
-	t.addScopeAttributesFromLabels(*rKey, scope, attrs)
-	mf := t.getOrCreateMetricFamily(*rKey, scope, mn)
-	seriesRef := t.getSeriesRef(l, mf.mtype)
-	mf.addExemplar(seriesRef, e)
-
-	return nil
-}
-
-func (t *transaction) appendHistogram(ls labels.Labels, atMs int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
-	var schema int32
-	if h != nil {
-		schema = h.Schema
-	} else if fh != nil {
-		schema = fh.Schema
-	}
-	t.addingNativeHistogram = true
-	t.addingNHCB = schema == -53
-
-	ls, rKey, metricName, err := t.prepareLabels(ls)
-	if err != nil {
-		return 0, err
-	}
-
-	// The `up`, `target_info`, `otel_scope_info` metrics should never generate native histograms,
-	// thus we don't check for them here as opposed to the Append function.
-
-	return t.addHistogramDatapoint(*rKey, ls, metricName, atMs, h, fh, schema, 0)
-}
-
-// addHistogramDatapoint adds a native histogram or NHCB datapoint to the appropriate metric family.
-// When stMs != 0, it also records a creation timestamp on the metric family.
-// It is shared by both V1 and V2 appender paths.
-func (t *transaction) addHistogramDatapoint(rKey resourceKey, ls labels.Labels, metricName string, atMs int64, h *histogram.Histogram, fh *histogram.FloatHistogram, schema int32, stMs int64) (storage.SeriesRef, error) {
-	parsedScope, attrs := getScopeID(ls)
-	t.addScopeAttributesFromLabels(rKey, parsedScope, attrs)
-
-	curMF := t.getOrCreateMetricFamily(rKey, parsedScope, metricName)
-	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-
-	if stMs != 0 {
-		curMF.addCreationTimestamp(seriesRef, ls, atMs, stMs)
-	}
-
-	if h != nil && h.CounterResetHint == histogram.GaugeType || fh != nil && fh.CounterResetHint == histogram.GaugeType {
-		t.logger.Warn("unsupported gauge histogram datapoint", zap.String("metric_name", metricName), zap.Any("labels", ls))
-	}
-
-	var err error
-	if schema == histogram.CustomBucketsSchema {
-		err = curMF.addNHCBSeries(seriesRef, metricName, ls, atMs, h, fh)
-	} else {
-		err = curMF.addExponentialHistogramSeries(seriesRef, metricName, ls, atMs, h, fh)
-	}
-	if err != nil {
-		t.logger.Warn("failed to add histogram datapoint", zap.Error(err), zap.String("metric_name", metricName), zap.Any("labels", ls))
-		// never return errors, as that fails the whole scrape
-		// return ref==0 indicating that the series was not added
-		return 0, nil
-	}
-
-	// never return errors, as that fails the whole scrape
-	// return a stable ref so Prometheus can track series staleness
-	return storage.SeriesRef(ls.Hash()), nil
-}
-
-func (t *transaction) appendSTZeroSample(ls labels.Labels, atMs, stMs int64) (storage.SeriesRef, error) {
-	t.addingNativeHistogram = false
-	t.addingNHCB = false
-	return t.setStartTimestamp(ls, atMs, stMs)
-}
-
-func (t *transaction) appendHistogramSTZeroSample(ls labels.Labels, atMs, stMs int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
-	var schema int32
-	if h != nil {
-		schema = h.Schema
-	} else if fh != nil {
-		schema = fh.Schema
-	}
-	t.addingNativeHistogram = true
-	t.addingNHCB = schema == -53
-	return t.setStartTimestamp(ls, atMs, stMs)
-}
-
-// prepareLabels merges external labels, initializes the transaction, validates
-// labels and extracts the metric name. It is shared by both V1 and V2 appender paths.
-func (t *transaction) prepareLabels(ls labels.Labels) (labels.Labels, *resourceKey, string, error) {
-	select {
-	case <-t.ctx.Done():
-		return labels.EmptyLabels(), nil, "", errTransactionAborted
-	default:
-	}
-
-	if t.externalLabels.Len() != 0 {
-		b := labels.NewBuilder(ls)
-		t.externalLabels.Range(func(l labels.Label) {
-			b.Set(l.Name, l.Value)
-		})
-		ls = b.Labels()
-	}
-
-	rKey, err := t.initTransaction(ls)
-	if err != nil {
-		return labels.EmptyLabels(), nil, "", err
-	}
-
-	// Any datapoint with duplicate labels MUST be rejected per:
-	// * https://github.com/open-telemetry/wg-prometheus/issues/44
-	// * https://github.com/open-telemetry/opentelemetry-collector/issues/3407
-	// as Prometheus rejects such too as of version 2.16.0, released on 2020-02-13.
-	if dupLabel, hasDup := ls.HasDuplicateLabelNames(); hasDup {
-		return labels.EmptyLabels(), nil, "", fmt.Errorf("invalid sample: non-unique label names: %q", dupLabel)
-	}
-
-	metricName := ls.Get(model.MetricNameLabel)
-	if metricName == "" {
-		return labels.EmptyLabels(), nil, "", errMetricNameNotFound
-	}
-
-	return ls, rKey, metricName, nil
-}
-
-func (t *transaction) setStartTimestamp(ls labels.Labels, atMs, stMs int64) (storage.SeriesRef, error) {
-	ls, rKey, metricName, err := t.prepareLabels(ls)
-	if err != nil {
-		return 0, err
-	}
-
-	scope, attrs := getScopeID(ls)
-	t.addScopeAttributesFromLabels(*rKey, scope, attrs)
-	curMF := t.getOrCreateMetricFamily(*rKey, scope, metricName)
-	seriesRef := t.getSeriesRef(ls, curMF.mtype)
-	curMF.addCreationTimestamp(seriesRef, ls, atMs, stMs)
-
-	return storage.SeriesRef(seriesRef), nil
-}
-
-func (*transaction) SetOptions(_ *storage.AppendOptions) {
-	// TODO: implement this func
+func getSeriesRefWithoutScopeLabels(bytes []byte, ls labels.Labels, mtype pmetric.MetricType) (uint64, []byte) {
+	return ls.HashWithoutLabels(bytes, getSortedNotUsefulLabelsForSeries(mtype, ls)...)
 }
 
 func (t *transaction) getSeriesRef(ls labels.Labels, mtype pmetric.MetricType) uint64 {
-	hash, bufBytes := getSeriesRefWithoutScopeLabels(t.bufBytes, ls, mtype)
-	t.bufBytes = bufBytes
+	hash, buf := getSeriesRefWithoutScopeLabels(t.bufBytes[:0], ls, mtype)
+	t.bufBytes = buf
 	return hash
 }
 
-// getMetrics returns all metrics to the given slice.
-// The only error returned by this function is errNoDataToBuild.
-func (t *transaction) getMetrics() (pmetric.Metrics, error) {
-	if len(t.families) == 0 {
-		return pmetric.Metrics{}, errNoDataToBuild
-	}
-
-	md := pmetric.NewMetrics()
-
-	for rKey, families := range t.families {
-		if len(families) == 0 {
-			continue
-		}
-		resource, ok := t.nodeResources[rKey]
-		if !ok {
-			continue
-		}
-		rms := md.ResourceMetrics().AppendEmpty()
-		resource.CopyTo(rms.Resource())
-
-		for scope, mfs := range families {
-			ils := rms.ScopeMetrics().AppendEmpty()
-			// If metrics don't include otel_scope_name or otel_scope_version
-			// labels, use the receiver name and version.
-			if scope == emptyScopeID {
-				ils.Scope().SetName(mdata.ScopeName)
-				ils.Scope().SetVersion(t.buildInfo.Version)
-			} else {
-				// Otherwise, use the scope that was provided with the metrics.
-				ils.Scope().SetName(scope.name)
-				ils.Scope().SetVersion(scope.version)
-				if scope.schemaURL != "" {
-					ils.SetSchemaUrl(scope.schemaURL)
-				}
-				if scopeAttributes, ok := t.scopeAttributes[rKey]; ok {
-					if attributes, ok := scopeAttributes[scope]; ok {
-						attributes.CopyTo(ils.Scope().Attributes())
+func populateExemplar(dt pmetric.Exemplar, ex exemplar.Exemplar) {
+	dt.FilteredAttributes().EnsureCapacity(ex.Labels.Len())
+	ex.Labels.Range(func(l labels.Label) {
+		switch strings.ToLower(l.Name) {
+		case prometheus.ExemplarTraceIDKey:
+			if l.Value == "" {
+				return
+			}
+			var tid [16]byte
+			if len(l.Value) == hex.EncodedLen(len(tid)) {
+				if b, err := hex.DecodeString(l.Value); err == nil {
+					copy(tid[:], b)
+					if traceID := pcommon.TraceID(tid); !traceID.IsEmpty() {
+						dt.SetTraceID(traceID)
+						return
 					}
 				}
 			}
-			metrics := ils.Metrics()
-			for _, mf := range mfs {
-				mf.appendMetric(metrics, t.trimSuffixes)
+			dt.FilteredAttributes().PutStr(l.Name, l.Value)
+		case prometheus.ExemplarSpanIDKey:
+			if l.Value == "" {
+				return
 			}
-		}
-	}
-	// remove the resource if no metrics were added to avoid returning resources with empty data points
-	md.ResourceMetrics().RemoveIf(func(metrics pmetric.ResourceMetrics) bool {
-		if metrics.ScopeMetrics().Len() == 0 {
-			return true
-		}
-		remove := true
-		for i := 0; i < metrics.ScopeMetrics().Len(); i++ {
-			if metrics.ScopeMetrics().At(i).Metrics().Len() > 0 {
-				remove = false
-				break
+			var sid [8]byte
+			if len(l.Value) == hex.EncodedLen(len(sid)) {
+				if b, err := hex.DecodeString(l.Value); err == nil {
+					copy(sid[:], b)
+					if spanID := pcommon.SpanID(sid); !spanID.IsEmpty() {
+						dt.SetSpanID(spanID)
+						return
+					}
+				}
 			}
+			dt.FilteredAttributes().PutStr(l.Name, l.Value)
+		default:
+			dt.FilteredAttributes().PutStr(l.Name, l.Value)
 		}
-		return remove
 	})
+}
 
-	return md, nil
+func attributesMatchLabels(attrs pcommon.Map, ls labels.Labels, mtype pmetric.MetricType) bool {
+	names := getSortedNotUsefulLabels(mtype)
+	j := 0
+	matched := 0
+	mismatch := false
+	ls.Range(func(l labels.Label) {
+		if mismatch {
+			return
+		}
+		for j < len(names) && names[j] < l.Name {
+			j++
+		}
+		if j < len(names) && l.Name == names[j] {
+			return
+		}
+		if strings.HasPrefix(l.Name, prometheus.ScopeLabelPrefix) {
+			return
+		}
+		if l.Value == "" {
+			return
+		}
+		v, ok := attrs.Get(l.Name)
+		if !ok || v.Str() != l.Value {
+			mismatch = true
+			return
+		}
+		matched++
+	})
+	return !mismatch && matched == attrs.Len()
+}
+
+func (t *transaction) populateAttributes(attrs pcommon.Map, ls labels.Labels, mtype pmetric.MetricType) {
+	attrs.EnsureCapacity(ls.Len())
+	names := getSortedNotUsefulLabels(mtype)
+	j := 0
+	ls.Range(func(l labels.Label) {
+		for j < len(names) && names[j] < l.Name {
+			j++
+		}
+		if j < len(names) && l.Name == names[j] {
+			return
+		}
+		if strings.HasPrefix(l.Name, prometheus.ScopeLabelPrefix) {
+			return
+		}
+		if l.Value == "" {
+			return
+		}
+		attrs.PutStr(l.Name, l.Value)
+	})
 }
 
 func getScopeID(ls labels.Labels) (scopeID, pcommon.Map) {
 	var scope scopeID
-	attrs := pcommon.NewMap()
+	var attrs pcommon.Map
+	hasAttrs := false
 	ls.Range(func(lbl labels.Label) {
 		switch lbl.Name {
 		case prometheus.ScopeNameLabelKey:
@@ -504,72 +276,32 @@ func getScopeID(ls labels.Labels) (scopeID, pcommon.Map) {
 			scope.schemaURL = lbl.Value
 			return
 		}
-		if !strings.HasPrefix(lbl.Name, prometheus.ScopeLabelPrefix) {
-			return
+		if strings.HasPrefix(lbl.Name, prometheus.ScopeLabelPrefix) {
+			if !hasAttrs {
+				attrs = pcommon.NewMap()
+				hasAttrs = true
+			}
+			attrKey := strings.TrimPrefix(lbl.Name, prometheus.ScopeLabelPrefix)
+			attrs.PutStr(attrKey, lbl.Value)
 		}
-		attrKey := strings.TrimPrefix(lbl.Name, prometheus.ScopeLabelPrefix)
-		attrs.PutStr(attrKey, lbl.Value)
 	})
-	scope.attrsHash = pdatautil.MapHash(attrs)
+	if hasAttrs {
+		scope.attrsHash = pdatautil.MapHash(attrs)
+	}
 	return scope, attrs
 }
 
-func (t *transaction) addScopeAttributesFromLabels(key resourceKey, scope scopeID, attrs pcommon.Map) {
-	if attrs.Len() == 0 {
-		return
-	}
-	if _, ok := t.scopeAttributes[key]; !ok {
-		t.scopeAttributes[key] = make(map[scopeID]pcommon.Map)
-	}
-	if _, exists := t.scopeAttributes[key][scope]; exists {
-		return
-	}
-	copied := pcommon.NewMap()
-	attrs.CopyTo(copied)
-	t.scopeAttributes[key][scope] = copied
-}
+func (t *transaction) SetOptions(_ *storage.AppendOptions) {}
 
-func (t *transaction) initTransaction(lbs labels.Labels) (*resourceKey, error) {
-	target, ok := scrape.TargetFromContext(t.ctx)
-	if !ok {
-		return nil, errors.New("unable to find target in context")
-	}
-	if t.useMetadata {
-		t.mc, ok = scrape.MetricMetadataStoreFromContext(t.ctx)
-		if !ok {
-			return nil, errors.New("unable to find MetricMetadataStore in context")
-		}
-	} else {
-		t.mc = &emptyMetadataStore{}
-	}
-
-	rKey, err := t.getJobAndInstance(lbs)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := t.nodeResources[*rKey]; !ok {
-		t.nodeResources[*rKey] = CreateResource(rKey.job, rKey.instance, target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())))
-	}
-
-	t.isNew = false
-	return rKey, nil
-}
-
-func (t *transaction) getJobAndInstance(labels labels.Labels) (*resourceKey, error) {
-	// first, try to get job and instance from the labels
+func (t *transaction) getJobAndInstance(labels labels.Labels) (resourceKey, error) {
 	job, instance := labels.Get(model.JobLabel), labels.Get(model.InstanceLabel)
 	if job != "" && instance != "" {
-		return &resourceKey{
+		return resourceKey{
 			job:      job,
 			instance: instance,
 		}, nil
 	}
 
-	// if not available in the labels, try to fall back to the scrape job associated
-	// with the transaction.
-	// this can be the case for, e.g., aggregated metrics coming from a federate endpoint
-	// that represent the whole cluster, rather than an individual workload.
-	// See https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/32555 for reference
 	if target, ok := scrape.TargetFromContext(t.ctx); ok {
 		if job == "" {
 			job = target.GetValue(model.JobLabel)
@@ -578,129 +310,749 @@ func (t *transaction) getJobAndInstance(labels labels.Labels) (*resourceKey, err
 			instance = target.GetValue(model.InstanceLabel)
 		}
 		if job != "" && instance != "" {
-			return &resourceKey{
+			return resourceKey{
 				job:      job,
 				instance: instance,
 			}, nil
 		}
 	}
-	return nil, errNoJobInstance
+	return resourceKey{}, errNoJobInstance
 }
 
-func (t *transaction) Commit() error {
-	if t.isNew {
-		return nil
+var emptyMetadataStoreInstance = &emptyMetadataStore{}
+
+func (t *transaction) Append(
+	ref storage.SeriesRef,
+	ls labels.Labels,
+	stMs, atMs int64,
+	val float64,
+	h *histogram.Histogram,
+	fh *histogram.FloatHistogram,
+	opts storage.AppendV2Options,
+) (storage.SeriesRef, error) {
+	if t.ctx.Err() != nil {
+		return 0, errTransactionAborted
 	}
 
-	ctx := t.obsrecv.StartMetricsOp(t.ctx)
-	md, err := t.getMetrics()
+	if ref == 0 {
+		ref = storage.SeriesRef(ls.Hash())
+	}
+
+	if t.externalLabels.Len() != 0 {
+		b := labels.NewBuilder(ls)
+		t.externalLabels.Range(func(l labels.Label) {
+			b.Set(l.Name, l.Value)
+		})
+		ls = b.Labels()
+	}
+
+	rKey, err := t.getJobAndInstance(ls)
 	if err != nil {
-		t.obsrecv.EndMetricsOp(ctx, dataformat, 0, err)
-		return err
+		return 0, err
 	}
 
-	numPoints := md.DataPointCount()
-	if numPoints == 0 {
-		return nil
+	if dupLabel, hasDup := ls.HasDuplicateLabelNames(); hasDup {
+		return 0, fmt.Errorf("invalid sample: non-unique label names: %q", dupLabel)
 	}
 
-	err = t.sink.ConsumeMetrics(ctx, md)
-	t.obsrecv.EndMetricsOp(ctx, dataformat, numPoints, err)
-	return err
-}
+	rawName := ls.Get(model.MetricNameLabel)
+	if rawName == "" {
+		return 0, errMetricNameNotFound
+	}
 
-func (*transaction) Rollback() error {
-	return nil
-}
+	if t.mc == nil {
+		t.mc = emptyMetadataStoreInstance
+		if t.useMetadata {
+			if mc, ok := scrape.MetricMetadataStoreFromContext(t.ctx); ok {
+				t.mc = mc
+			}
+		}
+	}
 
-func (*transaction) updateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
-	// TODO: implement this func
-	return 0, nil
-}
+	if rawName == "up" && val != 1.0 && !value.IsStaleNaN(val) {
+		if val == 0.0 {
+			var scrapeErr error
+			if target, ok := scrape.TargetFromContext(t.ctx); ok {
+				scrapeErr = target.LastError()
+			}
+			if scrapeErr != nil {
+				t.logger.Warn("Failed to scrape Prometheus endpoint", zap.Error(scrapeErr), zap.Int64("scrape_timestamp", atMs), zap.Stringer("target_labels", ls))
+			} else {
+				t.logger.Warn("Failed to scrape Prometheus endpoint", zap.Int64("scrape_timestamp", atMs), zap.Stringer("target_labels", ls))
+			}
+		} else {
+			t.logger.Warn("The 'up' metric contains invalid value", zap.Float64("value", val), zap.Int64("scrape_timestamp", atMs), zap.Stringer("target_labels", ls))
+		}
+	}
 
-func (t *transaction) AddTargetInfo(key resourceKey, ls labels.Labels) {
-	t.addingNativeHistogram = false
-	t.addingNHCB = false
-	if resource, ok := t.nodeResources[key]; ok {
-		attrs := resource.Attributes()
+	if rawName == prometheus.TargetInfoMetricName {
+		res, ok := t.nodeResources[rKey]
+		if !ok {
+			if target, tok := scrape.TargetFromContext(t.ctx); tok {
+				res = CreateResource(rKey.job, rKey.instance, target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())))
+			} else {
+				res = CreateResource(rKey.job, rKey.instance, labels.EmptyLabels())
+			}
+			t.nodeResources[rKey] = res
+		}
+		attrs := res.Attributes()
 		ls.Range(func(lbl labels.Label) {
 			if lbl.Name == model.JobLabel || lbl.Name == model.InstanceLabel || lbl.Name == model.MetricNameLabel {
 				return
 			}
 			attrs.PutStr(lbl.Name, lbl.Value)
 		})
-	}
-}
-
-func (t *transaction) addScopeInfo(key resourceKey, ls labels.Labels) {
-	t.addingNativeHistogram = false
-	t.addingNHCB = false
-	attrs := pcommon.NewMap()
-	scope := scopeID{}
-	ls.Range(func(lbl labels.Label) {
-		if lbl.Name == model.JobLabel || lbl.Name == model.InstanceLabel || lbl.Name == model.MetricNameLabel {
-			return
+		if rm, ok := t.resources[rKey]; ok {
+			res.CopyTo(rm.Resource())
 		}
-		if lbl.Name == prometheus.ScopeNameLabelKey {
-			scope.name = lbl.Value
-			return
-		}
-		if lbl.Name == prometheus.ScopeVersionLabelKey {
-			scope.version = lbl.Value
-			return
-		}
-		if lbl.Name == prometheus.ScopeSchemaURLLabelKey {
-			scope.schemaURL = lbl.Value
-			return
-		}
-		attrs.PutStr(lbl.Name, lbl.Value)
-	})
-	if _, ok := t.scopeAttributes[key]; !ok {
-		t.scopeAttributes[key] = make(map[scopeID]pcommon.Map)
-	}
-	t.scopeAttributes[key][scope] = attrs
-}
-
-func getSeriesRefWithoutScopeLabels(bytes []byte, ls labels.Labels, mtype pmetric.MetricType) (uint64, []byte) {
-	return ls.HashWithoutLabels(bytes, getSortedNotUsefulLabelsForSeries(mtype, ls)...)
-}
-
-// Append implements storage.AppenderV2.
-func (t *transaction) Append(_ storage.SeriesRef, ls labels.Labels, stMs, atMs int64, val float64, h *histogram.Histogram, fh *histogram.FloatHistogram, opts storage.AppendV2Options) (storage.SeriesRef, error) {
-	originalLS := ls
-	isHistogram := h != nil || fh != nil
-
-	ls, rKey, metricName, err := t.prepareLabels(ls)
-	if err != nil {
-		return 0, err
+		return ref, nil
 	}
 
-	var sRef storage.SeriesRef
+	if rawName == prometheus.ScopeInfoMetricName && !t.ignoreScopeInfoMetric {
+		scope := scopeID{}
+		attrs := pcommon.NewMap()
+		ls.Range(func(lbl labels.Label) {
+			if lbl.Name == model.JobLabel || lbl.Name == model.InstanceLabel || lbl.Name == model.MetricNameLabel {
+				return
+			}
+			switch lbl.Name {
+			case prometheus.ScopeNameLabelKey:
+				scope.name = lbl.Value
+			case prometheus.ScopeVersionLabelKey:
+				scope.version = lbl.Value
+			case prometheus.ScopeSchemaURLLabelKey:
+				scope.schemaURL = lbl.Value
+			default:
+				attrs.PutStr(lbl.Name, lbl.Value)
+			}
+		})
 
-	if isHistogram {
-		var schema int32
-		if h != nil {
-			schema = h.Schema
+		if attrs.Len() > 0 {
+			if t.scopeAttributes == nil {
+				t.scopeAttributes = make(map[resourceKey]map[scopeID]pcommon.Map)
+			}
+			if _, ok := t.scopeAttributes[rKey]; !ok {
+				t.scopeAttributes[rKey] = make(map[scopeID]pcommon.Map)
+			}
+			t.scopeAttributes[rKey][scope] = attrs
+			if smMap, ok := t.scopes[rKey]; ok {
+				if sm, ok2 := smMap[scope]; ok2 {
+					attrs.CopyTo(sm.Scope().Attributes())
+				}
+			}
+		}
+		return ref, nil
+	}
+
+	isCreatedLine := false
+	if strings.HasSuffix(rawName, metricSuffixCreated) && t.useMetadata {
+		baseName := strings.TrimSuffix(rawName, metricSuffixCreated)
+		if opts.MetricFamilyName != "" {
+			mfBase := strings.TrimSuffix(strings.TrimSuffix(opts.MetricFamilyName, metricSuffixTotal), metricSuffixCreated)
+			if baseName == mfBase {
+				if opts.Metadata.Type == model.MetricTypeCounter || opts.Metadata.Type == model.MetricTypeHistogram || opts.Metadata.Type == model.MetricTypeSummary || t.classicHistFamilies[baseName] {
+					isCreatedLine = true
+				}
+			}
+		} else if opts.Metadata.Type == model.MetricTypeCounter || opts.Metadata.Type == model.MetricTypeHistogram || opts.Metadata.Type == model.MetricTypeSummary || t.classicHistFamilies[baseName] {
+			isCreatedLine = true
+		} else if t.mc != nil {
+			if md, ok := t.mc.GetMetadata(baseName); ok && (md.Type == model.MetricTypeCounter || md.Type == model.MetricTypeHistogram || md.Type == model.MetricTypeSummary) {
+				isCreatedLine = true
+			} else if md, ok := t.mc.GetMetadata(baseName + metricSuffixTotal); ok && md.Type == model.MetricTypeCounter {
+				isCreatedLine = true
+			}
+		}
+	}
+	if isCreatedLine {
+		baseName := strings.TrimSuffix(rawName, metricSuffixCreated)
+		hash := t.getSeriesRef(ls, pmetric.MetricTypeSum)
+		key := dataPointKey{rKey: rKey, baseName: baseName, hash: hash}
+		ts := timestampFromFloat64(val)
+		if t.createdTimestamps == nil {
+			t.createdTimestamps = make(map[dataPointKey]pcommon.Timestamp)
+		}
+		t.createdTimestamps[key] = ts
+		for mKey, m := range t.metrics {
+			if mKey.rKey != rKey {
+				continue
+			}
+			if mKey.metricName != baseName && strings.TrimSuffix(mKey.metricName, "_total") != baseName {
+				continue
+			}
+			switch mKey.metricType {
+			case pmetric.MetricTypeSum:
+				dps := m.Sum().DataPoints()
+				for i := 0; i < dps.Len(); i++ {
+					dp := dps.At(i)
+					if dp.StartTimestamp() == 0 && attributesMatchLabels(dp.Attributes(), ls, mKey.metricType) {
+						dp.SetStartTimestamp(ts)
+					}
+				}
+			case pmetric.MetricTypeHistogram:
+				dps := m.Histogram().DataPoints()
+				for i := 0; i < dps.Len(); i++ {
+					dp := dps.At(i)
+					if dp.StartTimestamp() == 0 && attributesMatchLabels(dp.Attributes(), ls, mKey.metricType) {
+						dp.SetStartTimestamp(ts)
+					}
+				}
+			case pmetric.MetricTypeExponentialHistogram:
+				dps := m.ExponentialHistogram().DataPoints()
+				for i := 0; i < dps.Len(); i++ {
+					dp := dps.At(i)
+					if dp.StartTimestamp() == 0 && attributesMatchLabels(dp.Attributes(), ls, mKey.metricType) {
+						dp.SetStartTimestamp(ts)
+					}
+				}
+			}
+		}
+		return ref, nil
+	}
+
+	scope, attrs := getScopeID(ls)
+	if attrs != (pcommon.Map{}) && attrs.Len() > 0 {
+		if t.scopeAttributes == nil {
+			t.scopeAttributes = make(map[resourceKey]map[scopeID]pcommon.Map)
+		}
+		if _, ok := t.scopeAttributes[rKey]; !ok {
+			t.scopeAttributes[rKey] = make(map[scopeID]pcommon.Map)
+		}
+		if _, exists := t.scopeAttributes[rKey][scope]; !exists {
+			copied := pcommon.NewMap()
+			attrs.CopyTo(copied)
+			t.scopeAttributes[rKey][scope] = copied
+			if scopes, rOk := t.scopes[rKey]; rOk {
+				if sm, sOk := scopes[scope]; sOk && sm.Scope().Attributes().Len() == 0 {
+					copied.CopyTo(sm.Scope().Attributes())
+				}
+			}
+		}
+	}
+
+	mType := model.MetricTypeUnknown
+	mHelp := ""
+	mUnit := ""
+	if im, ok := internalMetricMetadata[rawName]; ok {
+		mType = im.Type
+		mHelp = im.Help
+		mUnit = im.Unit
+	} else if t.useMetadata && (opts.Metadata.Type != "" || opts.Metadata.Help != "" || opts.Metadata.Unit != "") {
+		mType = opts.Metadata.Type
+		mHelp = opts.Metadata.Help
+		mUnit = opts.Metadata.Unit
+	} else if t.useMetadata && t.mc != nil {
+		md, _ := metadataForMetric(rawName, t.mc)
+		mType = md.Type
+		mHelp = md.Help
+		mUnit = md.Unit
+	}
+
+	if mType == "" {
+		mType = model.MetricTypeUnknown
+	}
+
+	mtype := pmetric.MetricTypeGauge
+	isMonotonic := false
+	if h != nil || fh != nil {
+		mType = model.MetricTypeHistogram
+		if (h != nil && h.Schema == -53) || (fh != nil && fh.Schema == -53) {
+			mtype = pmetric.MetricTypeHistogram
+			isMonotonic = true
+			if opts.MetricFamilyName != "" && !t.classicHistFamilies[opts.MetricFamilyName] {
+				if t.classicHistFamilies == nil {
+					t.classicHistFamilies = make(map[string]bool)
+				}
+				t.classicHistFamilies[strings.Clone(opts.MetricFamilyName)] = true
+			}
+			normName := normalizeMetricName(rawName)
+			if !t.classicHistFamilies[normName] {
+				if t.classicHistFamilies == nil {
+					t.classicHistFamilies = make(map[string]bool)
+				}
+				t.classicHistFamilies[normName] = true
+			}
 		} else {
-			schema = fh.Schema
+			mtype = pmetric.MetricTypeExponentialHistogram
+			isMonotonic = true
 		}
-		t.addingNativeHistogram = true
-		t.addingNHCB = schema == histogram.CustomBucketsSchema
-
-		sRef, _ = t.addHistogramDatapoint(*rKey, ls, metricName, atMs, h, fh, schema, stMs)
+	} else if mType != model.MetricTypeGaugeHistogram && (mType == model.MetricTypeHistogram || t.classicHistFamilies[normalizeMetricName(rawName)] || (opts.MetricFamilyName != "" && t.classicHistFamilies[opts.MetricFamilyName]) || strings.HasSuffix(rawName, "_bucket")) && h == nil && fh == nil {
+		if strings.HasSuffix(rawName, "_bucket") {
+			if t.classicHistFamilies == nil {
+				t.classicHistFamilies = make(map[string]bool)
+			}
+			t.classicHistFamilies[strings.TrimSuffix(rawName, "_bucket")] = true
+		}
+		if value.IsStaleNaN(val) && !strings.HasSuffix(rawName, "_bucket") && !strings.HasSuffix(rawName, "_sum") && !strings.HasSuffix(rawName, "_count") {
+			if kt, ok := t.knownMetricTypes.Load(knownMetricTypeKey{rKey: rKey, metricName: normalizeMetricName(rawName)}); ok {
+				mtype = kt.(pmetric.MetricType)
+			} else {
+				mtype = pmetric.MetricTypeHistogram
+				if target, tok := scrape.TargetFromContext(t.ctx); tok {
+					if target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())).Get("__scrape_native_histograms__") == "true" {
+						mtype = pmetric.MetricTypeExponentialHistogram
+					}
+				}
+			}
+			isMonotonic = true
+		} else {
+			if strings.HasSuffix(rawName, "_bucket") {
+				if _, err := getBoundary(pmetric.MetricTypeHistogram, ls); err != nil {
+					t.logger.Info("failed to add datapoint", zap.Error(err), zap.String("metric_name", rawName))
+				}
+			}
+			if t.classicHistTimestamps == nil {
+				t.classicHistTimestamps = make(map[uint64]int64)
+			}
+			hash := t.getSeriesRef(ls, mtype)
+			if prevTs, ok := t.classicHistTimestamps[hash]; ok && prevTs != atMs {
+				t.logger.Info("failed to add datapoint", zap.Error(errors.New("timestamps are different")), zap.String("metric_name", rawName))
+			} else {
+				t.classicHistTimestamps[hash] = atMs
+			}
+			// Classical histogram scalar component (_bucket, _sum, _count) or incomplete histogram.
+			// When NHCB is active, the histogram is already emitted via NHCB, or invalid/incomplete.
+			// Do not emit as a separate metric.
+			return ref, nil
+		}
 	} else {
-		t.addingNativeHistogram = false
-		t.addingNHCB = false
-
-		sRef, _ = t.addSampleDatapoint(*rKey, ls, metricName, atMs, val, stMs)
-	}
-
-	// Append the exemplars, continuing on error to try all exemplars.
-	for _, exemplar := range opts.Exemplars {
-		if err := t.appendExemplar(originalLS, exemplar); err != nil {
-			continue
+		mtype, isMonotonic = convToMetricType(mType, false)
+		if mtype == pmetric.MetricTypeEmpty {
+			mtype = pmetric.MetricTypeGauge
 		}
 	}
 
-	return sRef, nil
+	if (h != nil && h.Schema == -53) || (fh != nil && fh.Schema == -53) {
+		isStale := value.IsStaleNaN(val) || (h != nil && value.IsStaleNaN(h.Sum)) || (fh != nil && value.IsStaleNaN(fh.Sum))
+		if !isStale && !validateNHCB(h, fh) {
+			return ref, nil
+		}
+	}
+
+	cleanName := rawName
+	if t.trimSuffixes {
+		if opts.MetricFamilyName != "" {
+			mfName := opts.MetricFamilyName
+			if idx := strings.IndexByte(mfName, 255); idx >= 0 {
+				mfName = mfName[:idx]
+			}
+			cleanName = strings.Clone(prometheus.TrimPromSuffixes(mfName, mtype, mUnit))
+		} else if t.mc != nil {
+			if _, ok := t.mc.GetMetadata(rawName); !ok {
+				if mtype == pmetric.MetricTypeSummary {
+					cleanName = normalizeSummaryName(rawName)
+				} else {
+					cleanName = normalizeMetricName(rawName)
+				}
+			}
+			cleanName = prometheus.TrimPromSuffixes(cleanName, mtype, mUnit)
+		} else {
+			if mtype == pmetric.MetricTypeSummary {
+				cleanName = prometheus.TrimPromSuffixes(normalizeSummaryName(rawName), mtype, mUnit)
+			} else {
+				cleanName = prometheus.TrimPromSuffixes(normalizeMetricName(rawName), mtype, mUnit)
+			}
+		}
+	} else {
+		if mtype == pmetric.MetricTypeSummary {
+			cleanName = normalizeSummaryName(rawName)
+		} else {
+			cleanName = rawName
+		}
+	}
+	if mType == model.MetricTypeInfo {
+		cleanName = strings.TrimSuffix(cleanName, "_info")
+	}
+
+	mKey := metricKey{rKey: rKey, scope: scope, metricType: mtype, metricName: cleanName}
+	m, ok := t.metrics[mKey]
+	if !ok {
+		if h != nil || fh != nil {
+			kKey := knownMetricTypeKey{rKey: rKey, metricName: normalizeMetricName(rawName)}
+			if _, loaded := t.knownMetricTypes.Load(kKey); !loaded {
+				t.knownMetricTypes.Store(kKey, mtype)
+			}
+		}
+		if _, rok := t.resources[rKey]; !rok {
+			rm := t.md.ResourceMetrics().AppendEmpty()
+			res, hasRes := t.nodeResources[rKey]
+			if !hasRes {
+				if target, tok := scrape.TargetFromContext(t.ctx); tok {
+					res = CreateResource(rKey.job, rKey.instance, target.DiscoveredLabels(labels.NewBuilder(labels.EmptyLabels())))
+				} else {
+					res = CreateResource(rKey.job, rKey.instance, labels.EmptyLabels())
+				}
+				t.nodeResources[rKey] = res
+			}
+			res.CopyTo(rm.Resource())
+			t.resources[rKey] = rm
+		}
+		if _, sok := t.scopes[rKey]; !sok {
+			t.scopes[rKey] = make(map[scopeID]pmetric.ScopeMetrics)
+		}
+		sm, sok := t.scopes[rKey][scope]
+		if !sok {
+			rm := t.resources[rKey]
+			sm = rm.ScopeMetrics().AppendEmpty()
+			if scope == emptyScopeID {
+				sm.Scope().SetName(mdata.ScopeName)
+				sm.Scope().SetVersion(t.buildInfo.Version)
+			} else {
+				sm.Scope().SetName(scope.name)
+				sm.Scope().SetVersion(scope.version)
+				if scope.schemaURL != "" {
+					sm.SetSchemaUrl(scope.schemaURL)
+				}
+				if scopeAttrs, exists := t.scopeAttributes[rKey]; exists {
+					if sattrs, ok2 := scopeAttrs[scope]; ok2 {
+						sattrs.CopyTo(sm.Scope().Attributes())
+					}
+				}
+			}
+			t.scopes[rKey][scope] = sm
+		}
+		m = sm.Metrics().AppendEmpty()
+		m.SetName(cleanName)
+		m.SetDescription(mHelp)
+		m.SetUnit(prometheus.UnitWordToUCUM(mUnit))
+		m.Metadata().PutStr(prometheus.MetricMetadataTypeKey, string(mType))
+
+		switch mtype {
+		case pmetric.MetricTypeSum:
+			sum := m.SetEmptySum()
+			sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+			sum.SetIsMonotonic(isMonotonic)
+		case pmetric.MetricTypeGauge:
+			m.SetEmptyGauge()
+		case pmetric.MetricTypeHistogram:
+			hist := m.SetEmptyHistogram()
+			hist.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		case pmetric.MetricTypeExponentialHistogram:
+			eh := m.SetEmptyExponentialHistogram()
+			eh.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		case pmetric.MetricTypeSummary:
+			// No logic
+		}
+		t.metrics[mKey] = m
+	}
+
+	if mtype == pmetric.MetricTypeSummary {
+		if t.summaryAccumulator == nil {
+			t.summaryAccumulator = &summaryAccumulator{
+				summaries:   make(map[metricKey]map[uint64]*summaryGroup),
+				groupHashes: make(map[metricKey][]uint64),
+			}
+		}
+		if _, ok := t.summaryAccumulator.summaries[mKey]; !ok {
+			t.summaryAccumulator.summaries[mKey] = make(map[uint64]*summaryGroup)
+			t.summaryAccumulator.groupHashes[mKey] = nil
+		}
+		hash := t.getSeriesRef(ls, mtype)
+		sg, ok := t.summaryAccumulator.summaries[mKey][hash]
+		if !ok {
+			sg = &summaryGroup{
+				ls:   ls,
+				atMs: atMs,
+				stMs: stMs,
+			}
+			t.summaryAccumulator.summaries[mKey][hash] = sg
+			t.summaryAccumulator.groupHashes[mKey] = append(t.summaryAccumulator.groupHashes[mKey], hash)
+		} else if sg.atMs != atMs {
+			t.logger.Info("failed to add datapoint", zap.Error(errors.New("timestamps are different")), zap.String("metric_name", rawName))
+			return ref, nil
+		}
+		if rawName == cleanName+"_sum" {
+			sg.hasSum = true
+			if value.IsStaleNaN(val) {
+				sg.isStale = true
+			} else {
+				sg.sum = val
+			}
+		} else if rawName == cleanName+"_count" {
+			sg.hasCount = true
+			if value.IsStaleNaN(val) {
+				sg.isStale = true
+			} else {
+				sg.count = val
+			}
+		} else {
+			q, err := getBoundary(mtype, ls)
+			if err != nil {
+				t.logger.Info("failed to add datapoint", zap.Error(err), zap.String("metric_name", rawName))
+				return ref, nil
+			}
+			if value.IsStaleNaN(val) {
+				sg.isStale = true
+			}
+			sg.quantiles = append(sg.quantiles, quantileValue{quantile: q, value: val})
+		}
+		return ref, nil
+	}
+
+	var dpExemplars pmetric.ExemplarSlice
+	if mtype == pmetric.MetricTypeSum {
+		dp := m.Sum().DataPoints().AppendEmpty()
+		dp.SetTimestamp(timestampFromMs(atMs))
+		if stMs != 0 {
+			dp.SetStartTimestamp(timestampFromMs(stMs))
+		} else if len(t.createdTimestamps) > 0 {
+			baseName := strings.TrimSuffix(cleanName, "_total")
+			hash := t.getSeriesRef(ls, mtype)
+			if ts, ok := t.createdTimestamps[dataPointKey{rKey: rKey, baseName: baseName, hash: hash}]; ok {
+				dp.SetStartTimestamp(ts)
+			}
+		}
+		if value.IsStaleNaN(val) {
+			dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+		} else {
+			dp.SetDoubleValue(val)
+		}
+		t.populateAttributes(dp.Attributes(), ls, mtype)
+		dpExemplars = dp.Exemplars()
+	} else if mtype == pmetric.MetricTypeGauge {
+		dp := m.Gauge().DataPoints().AppendEmpty()
+		dp.SetTimestamp(timestampFromMs(atMs))
+		if stMs != 0 {
+			dp.SetStartTimestamp(timestampFromMs(stMs))
+		}
+		if value.IsStaleNaN(val) {
+			dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+		} else {
+			dp.SetDoubleValue(val)
+		}
+		t.populateAttributes(dp.Attributes(), ls, mtype)
+		dpExemplars = dp.Exemplars()
+	} else if mtype == pmetric.MetricTypeHistogram {
+		dp := m.Histogram().DataPoints().AppendEmpty()
+		dp.SetTimestamp(timestampFromMs(atMs))
+		if stMs != 0 {
+			dp.SetStartTimestamp(timestampFromMs(stMs))
+		} else if len(t.createdTimestamps) > 0 {
+			hash := t.getSeriesRef(ls, mtype)
+			if ts, ok := t.createdTimestamps[dataPointKey{rKey: rKey, baseName: cleanName, hash: hash}]; ok {
+				dp.SetStartTimestamp(ts)
+			}
+		}
+		isStale := value.IsStaleNaN(val) || (h != nil && value.IsStaleNaN(h.Sum)) || (fh != nil && value.IsStaleNaN(fh.Sum))
+		if isStale {
+			dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+			if h != nil {
+				if len(h.CustomValues) > 0 {
+					dp.ExplicitBounds().FromRaw(h.CustomValues)
+				}
+				populateZeroBuckets(len(h.CustomValues)+1, dp.BucketCounts())
+			} else if fh != nil {
+				if len(fh.CustomValues) > 0 {
+					dp.ExplicitBounds().FromRaw(fh.CustomValues)
+				}
+				populateZeroBuckets(len(fh.CustomValues)+1, dp.BucketCounts())
+			}
+		} else {
+			if h != nil {
+				dp.SetCount(h.Count)
+				if !math.IsNaN(h.Sum) {
+					dp.SetSum(h.Sum)
+				}
+				if len(h.CustomValues) > 0 {
+					dp.ExplicitBounds().FromRaw(h.CustomValues)
+				}
+				populateNHCBDeltaBuckets(h, dp.BucketCounts())
+			} else if fh != nil {
+				dp.SetCount(uint64(fh.Count))
+				if !math.IsNaN(fh.Sum) {
+					dp.SetSum(fh.Sum)
+				}
+				if len(fh.CustomValues) > 0 {
+					dp.ExplicitBounds().FromRaw(fh.CustomValues)
+				}
+				populateNHCBAbsoluteBuckets(fh, dp.BucketCounts())
+			}
+		}
+		t.populateAttributes(dp.Attributes(), ls, mtype)
+		dpExemplars = dp.Exemplars()
+	} else if mtype == pmetric.MetricTypeExponentialHistogram {
+		dp := m.ExponentialHistogram().DataPoints().AppendEmpty()
+		dp.SetTimestamp(timestampFromMs(atMs))
+		if stMs != 0 {
+			dp.SetStartTimestamp(timestampFromMs(stMs))
+		} else if len(t.createdTimestamps) > 0 {
+			hash := t.getSeriesRef(ls, mtype)
+			if ts, ok := t.createdTimestamps[dataPointKey{rKey: rKey, baseName: cleanName, hash: hash}]; ok {
+				dp.SetStartTimestamp(ts)
+			}
+		}
+		isStale := value.IsStaleNaN(val) || (h != nil && value.IsStaleNaN(h.Sum)) || (fh != nil && value.IsStaleNaN(fh.Sum))
+		if isStale {
+			dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+		} else {
+			if h != nil {
+				dp.SetCount(h.Count)
+				if !math.IsNaN(h.Sum) {
+					dp.SetSum(h.Sum)
+				}
+				dp.SetZeroThreshold(h.ZeroThreshold)
+				dp.SetZeroCount(h.ZeroCount)
+				dp.SetScale(h.Schema)
+
+				if len(h.PositiveSpans) > 0 {
+					dp.Positive().SetOffset(h.PositiveSpans[0].Offset - 1)
+					convertDeltaBuckets(h.PositiveSpans, h.PositiveBuckets, dp.Positive().BucketCounts())
+				}
+				if len(h.NegativeSpans) > 0 {
+					dp.Negative().SetOffset(h.NegativeSpans[0].Offset - 1)
+					convertDeltaBuckets(h.NegativeSpans, h.NegativeBuckets, dp.Negative().BucketCounts())
+				}
+			} else if fh != nil {
+				dp.SetCount(uint64(fh.Count))
+				if !math.IsNaN(fh.Sum) {
+					dp.SetSum(fh.Sum)
+				}
+				dp.SetZeroThreshold(fh.ZeroThreshold)
+				dp.SetZeroCount(uint64(fh.ZeroCount))
+				dp.SetScale(fh.Schema)
+
+				if len(fh.PositiveSpans) > 0 {
+					dp.Positive().SetOffset(fh.PositiveSpans[0].Offset - 1)
+					convertAbsoluteBuckets(fh.PositiveSpans, fh.PositiveBuckets, dp.Positive().BucketCounts())
+				}
+				if len(fh.NegativeSpans) > 0 {
+					dp.Negative().SetOffset(fh.NegativeSpans[0].Offset - 1)
+					convertAbsoluteBuckets(fh.NegativeSpans, fh.NegativeBuckets, dp.Negative().BucketCounts())
+				}
+			}
+		}
+		t.populateAttributes(dp.Attributes(), ls, mtype)
+		dpExemplars = dp.Exemplars()
+	}
+
+	for _, ex := range opts.Exemplars {
+		dt := dpExemplars.AppendEmpty()
+		dt.SetTimestamp(timestampFromMs(ex.Ts))
+		dt.SetDoubleValue(ex.Value)
+		populateExemplar(dt, ex)
+	}
+
+	return ref, nil
 }
+
+func (t *transaction) Commit() error {
+	if t.summaryAccumulator != nil {
+		for mKey, sumGroupMap := range t.summaryAccumulator.summaries {
+			m, ok := t.metrics[mKey]
+			if !ok {
+				continue
+			}
+			sum := m.SetEmptySummary()
+			for _, sgHash := range t.summaryAccumulator.groupHashes[mKey] {
+				sg := sumGroupMap[sgHash]
+				if !sg.hasCount {
+					continue
+				}
+				dp := sum.DataPoints().AppendEmpty()
+				dp.SetTimestamp(timestampFromMs(sg.atMs))
+				if sg.stMs != 0 {
+					dp.SetStartTimestamp(timestampFromMs(sg.stMs))
+				} else if len(t.createdTimestamps) > 0 {
+					key := dataPointKey{rKey: mKey.rKey, baseName: mKey.metricName, hash: sgHash}
+					if ts, ok := t.createdTimestamps[key]; ok {
+						dp.SetStartTimestamp(ts)
+					}
+				}
+				if sg.isStale {
+					dp.SetFlags(pmetric.DefaultDataPointFlags.WithNoRecordedValue(true))
+				} else {
+					dp.SetCount(uint64(sg.count))
+					if sg.hasSum {
+						dp.SetSum(sg.sum)
+					}
+				}
+				t.populateAttributes(dp.Attributes(), sg.ls, pmetric.MetricTypeSummary)
+
+				qVals := dp.QuantileValues()
+				sort.Slice(sg.quantiles, func(i, j int) bool { return sg.quantiles[i].quantile < sg.quantiles[j].quantile })
+				qVals.EnsureCapacity(len(sg.quantiles))
+				for _, qv := range sg.quantiles {
+					qDp := qVals.AppendEmpty()
+					qDp.SetQuantile(qv.quantile)
+					if !sg.isStale {
+						qDp.SetValue(qv.value)
+					}
+				}
+			}
+		}
+	}
+	if len(t.classicHistFamilies) > 0 || t.summaryAccumulator != nil {
+		for _, rm := range t.resources {
+			sms := rm.ScopeMetrics()
+			for i := 0; i < sms.Len(); i++ {
+				sm := sms.At(i)
+				sm.Metrics().RemoveIf(func(m pmetric.Metric) bool {
+					if len(t.classicHistFamilies) > 0 && (m.Type() == pmetric.MetricTypeGauge || m.Type() == pmetric.MetricTypeSum) {
+						if strings.HasSuffix(m.Name(), "_count") && t.classicHistFamilies[strings.TrimSuffix(m.Name(), "_count")] {
+							return true
+						}
+						if strings.HasSuffix(m.Name(), "_sum") && t.classicHistFamilies[strings.TrimSuffix(m.Name(), "_sum")] {
+							return true
+						}
+						if strings.HasSuffix(m.Name(), "_bucket") && t.classicHistFamilies[strings.TrimSuffix(m.Name(), "_bucket")] {
+							return true
+						}
+					}
+					switch m.Type() {
+					case pmetric.MetricTypeGauge:
+						return m.Gauge().DataPoints().Len() == 0
+					case pmetric.MetricTypeSum:
+						return m.Sum().DataPoints().Len() == 0
+					case pmetric.MetricTypeHistogram:
+						return m.Histogram().DataPoints().Len() == 0
+					case pmetric.MetricTypeExponentialHistogram:
+						return m.ExponentialHistogram().DataPoints().Len() == 0
+					case pmetric.MetricTypeSummary:
+						return m.Summary().DataPoints().Len() == 0
+					default:
+						return true
+					}
+				})
+			}
+		}
+
+		t.md.ResourceMetrics().RemoveIf(func(metrics pmetric.ResourceMetrics) bool {
+			if metrics.ScopeMetrics().Len() == 0 {
+				return true
+			}
+			remove := true
+			for i := 0; i < metrics.ScopeMetrics().Len(); i++ {
+				if metrics.ScopeMetrics().At(i).Metrics().Len() > 0 {
+					remove = false
+					break
+				}
+			}
+			return remove
+		})
+	}
+
+	numPoints := t.md.DataPointCount()
+	if numPoints == 0 {
+		return nil
+	}
+
+	ctx := t.obsrecv.StartMetricsOp(t.ctx)
+	err := t.sink.ConsumeMetrics(ctx, t.md)
+	t.obsrecv.EndMetricsOp(ctx, dataformat, numPoints, err)
+	return err
+}
+
+func (t *transaction) Rollback() error {
+	t.md = pmetric.NewMetrics()
+	t.resources = make(map[resourceKey]pmetric.ResourceMetrics)
+	t.scopes = make(map[resourceKey]map[scopeID]pmetric.ScopeMetrics)
+	t.metrics = make(map[metricKey]pmetric.Metric)
+	t.nodeResources = make(map[resourceKey]pcommon.Resource)
+	t.scopeAttributes = nil
+	t.summaryAccumulator = nil
+	t.createdTimestamps = nil
+	t.classicHistFamilies = nil
+	t.classicHistTimestamps = nil
+	return nil
+}
+
