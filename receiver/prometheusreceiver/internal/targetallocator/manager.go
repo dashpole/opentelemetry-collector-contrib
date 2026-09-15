@@ -189,6 +189,9 @@ func (m *Manager) sync(compareHash uint64, httpClient *http.Client) (uint64, err
 			return 0, err
 		}
 
+		b := true
+		scrapeConfig.ConvertClassicHistogramsToNHCB = &b
+
 		newConfigs = append(newConfigs, scrapeConfig)
 	}
 
@@ -213,10 +216,21 @@ func (m *Manager) sync(compareHash uint64, httpClient *http.Client) (uint64, err
 }
 
 func (m *Manager) applyCfg(cfg *promconfig.Config) error {
+	cfg.GlobalConfig.ConvertClassicHistogramsToNHCB = true
+	b := true
+	for _, sc := range cfg.ScrapeConfigs {
+		sc.ConvertClassicHistogramsToNHCB = &b
+	}
+
 	scrapeConfigs, err := cfg.GetScrapeConfigs()
 	if err != nil {
 		return fmt.Errorf("could not get scrape configs: %w", err)
 	}
+	for _, sc := range scrapeConfigs {
+		sc.ConvertClassicHistogramsToNHCB = &b
+	}
+	cfg.ScrapeConfigs = scrapeConfigs
+	cfg.ScrapeConfigFiles = nil
 
 	if err := m.scrapeManager.ApplyConfig(cfg); err != nil {
 		return err

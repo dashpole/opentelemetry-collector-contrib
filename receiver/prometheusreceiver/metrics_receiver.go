@@ -63,6 +63,11 @@ func newPrometheusReceiver(set receiver.Settings, cfg *Config, next consumer.Met
 	}
 
 	baseCfg := promconfig.Config(*cfg.PrometheusConfig)
+	baseCfg.GlobalConfig.ConvertClassicHistogramsToNHCB = true
+	b := true
+	for _, sc := range baseCfg.ScrapeConfigs {
+		sc.ConvertClassicHistogramsToNHCB = &b
+	}
 	registry := prometheus.NewRegistry()
 	registerer := prometheus.WrapRegistererWith(
 		prometheus.Labels{"receiver": set.ID.String()},
@@ -217,6 +222,8 @@ func (r *pReceiver) initScrapeOptions(o prometheusScrapeTestOptions) *scrape.Opt
 	opts := &scrape.Options{
 		DiscoveryReloadInterval: model.Duration(o.discoveryReloadInterval),
 		PassMetadataInContext:   true,
+		AppendMetadata:          true,
+		ParseST:                 true,
 		HTTPClientOptions: []commonconfig.HTTPClientOption{
 			commonconfig.WithUserAgent(r.settings.BuildInfo.Command + "/" + r.settings.BuildInfo.Version),
 		},

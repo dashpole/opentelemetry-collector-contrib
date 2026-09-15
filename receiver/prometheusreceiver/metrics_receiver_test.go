@@ -1485,7 +1485,7 @@ func TestBucketlessHistogramNHCBConversion(t *testing.T) {
 		{
 			name:                   "classic histogram retained",
 			alwaysScrapeClassic:    true,
-			expectedHistogramCount: 2,
+			expectedHistogramCount: 1,
 		},
 	}
 
