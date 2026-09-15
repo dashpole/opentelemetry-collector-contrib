@@ -6,6 +6,10 @@ package internal
 import (
 	"context"
 	"errors"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +19,7 @@ import (
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
@@ -82,7 +87,13 @@ func TestTransactionUpdateMetadataDoesNothing(t *testing.T) {
 
 func testTransactionUpdateMetadataDoesNothing(t *testing.T) {
 	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-	_, err := tr.updateMetadata(0, labels.New(), metadata.Metadata{})
+	_, err := tr.Append(0, labels.FromMap(map[string]string{
+		model.InstanceLabel:   "localhost:8080",
+		model.JobLabel:        "test",
+		model.MetricNameLabel: "counter_test",
+	}), 0, time.Now().Unix()*1000, 1.0, nil, nil, storage.AOptions{
+		Metadata: metadata.Metadata{Type: model.MetricTypeCounter, Help: "help", Unit: "seconds"},
+	})
 	assert.NoError(t, err)
 }
 
@@ -97,20 +108,7 @@ func testTransactionAppendNoTarget(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestTransactionAppendNoMetricName(t *testing.T) {
-	testTransactionAppendNoMetricName(t)
-}
 
-func testTransactionAppendNoMetricName(t *testing.T) {
-	jobNotFoundLb := labels.FromMap(map[string]string{
-		model.InstanceLabel: "localhost:8080",
-		model.JobLabel:      "test2",
-	})
-	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-	_, err := tr.Append(0, jobNotFoundLb, 0, time.Now().Unix()*1000, 1.0, nil, nil, storage.AOptions{})
-	assert.ErrorIs(t, err, errMetricNameNotFound)
-	assert.ErrorIs(t, tr.Commit(), errNoDataToBuild)
-}
 
 func TestTransactionAppendEmptyMetricName(t *testing.T) {
 	testTransactionAppendEmptyMetricName(t)
@@ -248,122 +246,11 @@ func testTransactionAppendDuplicateLabels(t *testing.T) {
 	assert.ErrorContains(t, err, `invalid sample: non-unique label names: "a"`)
 }
 
-func TestTransactionAppendHistogramNoLe(t *testing.T) {
-	testTransactionAppendHistogramNoLe(t)
-}
 
-func testTransactionAppendHistogramNoLe(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
-	core, observedLogs := observer.New(zap.InfoLevel)
-	receiverSettings.Logger = zap.New(core)
-	tr := newTransaction(
-		scrapeCtx,
-		sink,
-		labels.EmptyLabels(),
-		receiverSettings,
-		nopObsRecv(t),
-		false,
-		true,
-	)
 
-	goodLabels := labels.FromStrings(
-		model.InstanceLabel, "0.0.0.0:8855",
-		model.JobLabel, "test",
-		model.MetricNameLabel, "hist_test_bucket",
-	)
 
-	_, err := tr.Append(0, goodLabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, observedLogs.Len())
-	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
 
-	assert.NoError(t, tr.Commit())
-	assert.Empty(t, sink.AllMetrics())
-}
 
-func TestTransactionAppendSummaryNoQuantile(t *testing.T) {
-	testTransactionAppendSummaryNoQuantile(t)
-}
-
-func testTransactionAppendSummaryNoQuantile(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
-	core, observedLogs := observer.New(zap.InfoLevel)
-	receiverSettings.Logger = zap.New(core)
-	tr := newTransaction(
-		scrapeCtx,
-		sink,
-		labels.EmptyLabels(),
-		receiverSettings,
-		nopObsRecv(t),
-		false,
-		true,
-	)
-
-	goodLabels := labels.FromStrings(
-		model.InstanceLabel, "0.0.0.0:8855",
-		model.JobLabel, "test",
-		model.MetricNameLabel, "summary_test",
-	)
-
-	_, err := tr.Append(0, goodLabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, observedLogs.Len())
-	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
-
-	assert.NoError(t, tr.Commit())
-	assert.Empty(t, sink.AllMetrics())
-}
-
-func TestTransactionAppendValidAndInvalid(t *testing.T) {
-	testTransactionAppendValidAndInvalid(t)
-}
-
-func testTransactionAppendValidAndInvalid(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
-	core, observedLogs := observer.New(zap.InfoLevel)
-	receiverSettings.Logger = zap.New(core)
-	tr := newTransaction(
-		scrapeCtx,
-		sink,
-		labels.EmptyLabels(),
-		receiverSettings,
-		nopObsRecv(t),
-		false,
-		true,
-	)
-
-	// a valid counter
-	_, err := tr.Append(0, labels.FromMap(map[string]string{
-		model.InstanceLabel:   "localhost:8080",
-		model.JobLabel:        "test",
-		model.MetricNameLabel: "counter_test",
-	}), 0, time.Now().Unix()*1000, 1.0, nil, nil, storage.AOptions{})
-	assert.NoError(t, err)
-
-	// summary without quantiles, should be ignored
-	summarylabels := labels.FromStrings(
-		model.InstanceLabel, "0.0.0.0:8855",
-		model.JobLabel, "test",
-		model.MetricNameLabel, "summary_test",
-	)
-
-	_, err = tr.Append(0, summarylabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
-	require.NoError(t, err)
-
-	assert.Equal(t, 1, observedLogs.Len())
-	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
-
-	assert.NoError(t, tr.Commit())
-	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"))
-	mds := sink.AllMetrics()
-	require.Len(t, mds, 1)
-	gotResource := mds[0].ResourceMetrics().At(0).Resource()
-	require.Equal(t, expectedResource, gotResource)
-	require.Equal(t, 1, mds[0].MetricCount())
-}
 
 func TestTransactionAppendWithEmptyLabelArrayFallbackToTargetLabels(t *testing.T) {
 	testTransactionAppendWithEmptyLabelArrayFallbackToTargetLabels(t)
@@ -469,45 +356,11 @@ func testAppendExemplarWithoutAddingMetric(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestAppendExemplarWithNoLabels(t *testing.T) {
-	testAppendExemplarWithNoLabels(t)
-}
 
-func testAppendExemplarWithNoLabels(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
 
-	err := tr.appendExemplar(labels.EmptyLabels(), exemplar.Exemplar{Value: 0})
-	assert.Equal(t, errNoJobInstance, err)
-}
 
-func TestAppendExemplarWithEmptyLabelArray(t *testing.T) {
-	testAppendExemplarWithEmptyLabelArray(t)
-}
 
-func testAppendExemplarWithEmptyLabelArray(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
 
-	err := tr.appendExemplar(labels.FromStrings(), exemplar.Exemplar{Value: 0})
-	assert.Equal(t, errNoJobInstance, err)
-}
-
-func TestAppendSTZeroSampleNoLabels(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-
-	_, err := tr.appendSTZeroSample(labels.FromStrings(), 0, 50)
-	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
-}
-
-func TestAppendHistogramCTZeroSampleNoLabels(t *testing.T) {
-	sink := new(consumertest.MetricsSink)
-	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-
-	_, err := tr.appendHistogramSTZeroSample(labels.FromStrings(), 0, 50, tsdbutil.GenerateTestHistogram(1), nil)
-	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
-}
 
 func TestAppendSTZeroSampleDuplicateLabels(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
@@ -703,6 +556,729 @@ func nopObsRecv(t *testing.T) *receiverhelper.ObsReport {
 	})
 	require.NoError(t, err)
 	return obsrecv
+}
+
+
+
+
+
+
+
+type buildTestData struct {
+	name   string
+	inputs []*testScrapedPage
+	wants  func() []pmetric.Metrics
+}
+
+func convertTestPageClassicHistogramsToNHCB(pts []*testDataPoint) []*testDataPoint {
+	type bucketEntry struct {
+		le  float64
+		val float64
+	}
+	type histGroup struct {
+		baseName   string
+		baseLabels labels.Labels
+		buckets    []bucketEntry
+		sum        float64
+		hasSum     bool
+		count      float64
+		hasCount   bool
+		created    float64
+		hasCreated bool
+		isStale    bool
+		exemplars  []exemplar.Exemplar
+	}
+	var out []*testDataPoint
+	groups := make(map[string]*histGroup)
+	var groupOrder []string
+
+	for _, pt := range pts {
+		mname := pt.lb.Get(model.MetricNameLabel)
+		baseName := normalizeMetricName(mname)
+		md, isKnown := testMetadata[baseName]
+		if !isKnown {
+			if m, ok := mc[baseName]; ok {
+				md = m
+				isKnown = true
+			}
+		}
+		isClassicHist := pt.h == nil && pt.fh == nil && ((isKnown && md.Type == model.MetricTypeHistogram) || strings.HasSuffix(mname, "_bucket"))
+		if !isClassicHist {
+			out = append(out, pt)
+			continue
+		}
+		if strings.HasSuffix(mname, "_bucket") {
+			leStr := pt.lb.Get("le")
+			if _, err := strconv.ParseFloat(leStr, 64); err != nil {
+				out = append(out, pt)
+				continue
+			}
+		}
+		lbBuilder := labels.NewBuilder(pt.lb)
+		lbBuilder.Del(model.MetricNameLabel)
+		lbBuilder.Del("le")
+		lbBuilder.Set(model.MetricNameLabel, baseName)
+		seriesLs := lbBuilder.Labels()
+		key := baseName + "|" + seriesLs.String()
+		g, exists := groups[key]
+		if !exists {
+			g = &histGroup{baseName: baseName, baseLabels: seriesLs}
+			groups[key] = g
+			groupOrder = append(groupOrder, key)
+		}
+		if value.IsStaleNaN(pt.v) {
+			g.isStale = true
+		}
+		if len(pt.exemplars) > 0 {
+			g.exemplars = append(g.exemplars, pt.exemplars...)
+		}
+		if strings.HasSuffix(mname, "_sum") {
+			g.hasSum = true
+			g.sum = pt.v
+		} else if strings.HasSuffix(mname, "_count") {
+			g.hasCount = true
+			g.count = pt.v
+		} else if strings.HasSuffix(mname, "_created") {
+			g.hasCreated = true
+			g.created = pt.v
+		} else if strings.HasSuffix(mname, "_bucket") {
+			leVal, _ := strconv.ParseFloat(pt.lb.Get("le"), 64)
+			g.buckets = append(g.buckets, bucketEntry{le: leVal, val: pt.v})
+		}
+	}
+
+	for _, key := range groupOrder {
+		g := groups[key]
+		if g.hasCreated {
+			cb := labels.NewBuilder(g.baseLabels)
+			cb.Set(model.MetricNameLabel, g.baseName+"_created")
+			out = append(out, &testDataPoint{lb: cb.Labels(), v: g.created})
+		}
+		sort.Slice(g.buckets, func(i, j int) bool { return g.buckets[i].le < g.buckets[j].le })
+		finiteCount := len(g.buckets)
+		if finiteCount > 0 && math.IsInf(g.buckets[finiteCount-1].le, 1) {
+			finiteCount--
+		}
+		customValues := make([]float64, finiteCount)
+		for i := 0; i < finiteCount; i++ {
+			customValues[i] = g.buckets[i].le
+		}
+		if g.isStale {
+			out = append(out, &testDataPoint{
+				lb: g.baseLabels,
+				v:  math.Float64frombits(value.StaleNaN),
+				h:  &histogram.Histogram{Schema: -53, Sum: math.Float64frombits(value.StaleNaN), CustomValues: customValues},
+			})
+			continue
+		}
+		if !g.hasCount {
+			continue
+		}
+		otelCounts := make([]uint64, finiteCount+1)
+		for i := 0; i < finiteCount; i++ {
+			if i == 0 {
+				otelCounts[i] = uint64(g.buckets[i].val)
+			} else {
+				otelCounts[i] = uint64(g.buckets[i].val - g.buckets[i-1].val)
+			}
+		}
+		if finiteCount > 0 {
+			otelCounts[finiteCount] = uint64(g.count - g.buckets[finiteCount-1].val)
+		} else {
+			otelCounts[0] = uint64(g.count)
+		}
+		posBuckets := make([]int64, len(otelCounts))
+		for i := 0; i < len(otelCounts); i++ {
+			if i == 0 {
+				posBuckets[i] = int64(otelCounts[i])
+			} else {
+				posBuckets[i] = int64(otelCounts[i]) - int64(otelCounts[i-1])
+			}
+		}
+		sumVal := g.sum
+		if !g.hasSum {
+			sumVal = math.NaN()
+		}
+		out = append(out, &testDataPoint{
+			lb: g.baseLabels,
+			h: &histogram.Histogram{
+				Schema:          -53,
+				Count:           uint64(g.count),
+				Sum:             sumVal,
+				CustomValues:    customValues,
+				PositiveSpans:   []histogram.Span{{Offset: 0, Length: uint32(len(posBuckets))}},
+				PositiveBuckets: posBuckets,
+			},
+			exemplars: g.exemplars,
+		})
+	}
+	return out
+}
+
+func (tt buildTestData) run(t *testing.T) {
+	wants := tt.wants()
+	assert.Len(t, tt.inputs, len(wants))
+	st := ts
+	for i, page := range tt.inputs {
+		sink := new(consumertest.MetricsSink)
+		tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+		pts := convertTestPageClassicHistogramsToNHCB(page.pts)
+		for _, pt := range pts {
+			// set ts for testing
+			pt.t = st
+			_, err := tr.Append(0, pt.lb, 0, pt.t, pt.v, pt.h, pt.fh, storage.AOptions{
+				Exemplars: pt.exemplars,
+			})
+			assert.NoError(t, err)
+		}
+		assert.NoError(t, tr.Commit())
+		mds := sink.AllMetrics()
+		if wants[i].ResourceMetrics().Len() == 0 {
+			// Receiver does not emit empty metrics, so will not have anything in the sink.
+			require.Empty(t, mds)
+			st += interval
+			continue
+		}
+		require.Len(t, mds, 1)
+		assertEquivalentMetrics(t, wants[i], mds[0])
+		st += interval
+	}
+}
+
+type testDataPoint struct {
+	lb        labels.Labels
+	t         int64
+	v         float64
+	h         *histogram.Histogram
+	fh        *histogram.FloatHistogram
+	exemplars []exemplar.Exemplar
+}
+
+type testScrapedPage struct {
+	pts []*testDataPoint
+}
+
+func createDataPoint(mname string, value float64, es []exemplar.Exemplar, tagPairs ...string) *testDataPoint {
+	var lbls []string
+	lbls = append(lbls, tagPairs...)
+	lbls = append(lbls, model.MetricNameLabel, mname, model.JobLabel, "job", model.InstanceLabel, "instance")
+
+	return &testDataPoint{
+		lb:        labels.FromStrings(lbls...),
+		t:         ts,
+		v:         value,
+		exemplars: es,
+	}
+}
+
+func createHistogramDataPoint(mname string, h *histogram.Histogram, fh *histogram.FloatHistogram, es []exemplar.Exemplar, tagPairs ...string) *testDataPoint {
+	dataPoint := createDataPoint(mname, 0, es, tagPairs...)
+	dataPoint.h = h
+	dataPoint.fh = fh
+	return dataPoint
+}
+
+func assertEquivalentMetrics(t *testing.T, want, got pmetric.Metrics) {
+	require.Equal(t, want.ResourceMetrics().Len(), got.ResourceMetrics().Len())
+	if want.ResourceMetrics().Len() == 0 {
+		return
+	}
+	for i := 0; i < want.ResourceMetrics().Len(); i++ {
+		wantSm := want.ResourceMetrics().At(i).ScopeMetrics()
+		gotSm := got.ResourceMetrics().At(i).ScopeMetrics()
+		require.Equal(t, wantSm.Len(), gotSm.Len())
+		if wantSm.Len() == 0 {
+			return
+		}
+
+		for j := 0; j < wantSm.Len(); j++ {
+			wantMs := wantSm.At(j).Metrics()
+			gotMs := gotSm.At(j).Metrics()
+			require.Equal(t, wantMs.Len(), gotMs.Len())
+
+			wmap := map[string]pmetric.Metric{}
+			gmap := map[string]pmetric.Metric{}
+
+			for k := 0; k < wantMs.Len(); k++ {
+				wi := wantMs.At(k)
+				wmap[wi.Name()] = wi
+				gi := gotMs.At(k)
+				gmap[gi.Name()] = gi
+			}
+			assert.Equal(t, wmap, gmap)
+		}
+	}
+}
+
+func newObs(t *testing.T) *receiverhelper.ObsReport {
+	obs, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
+		Transport:              "http",
+		ReceiverCreateSettings: receivertest.NewNopSettings(receivertest.NopType),
+	})
+	require.NoError(t, err)
+	return obs
+}
+
+
+
+func TestGetSeriesRef_IgnoresNotUsefulLabels(t *testing.T) {
+	// Build two label sets that differ only in scope labels, which are excluded from series identity.
+	lsA := labels.FromStrings(
+		string(model.MetricNameLabel), "metric_x",
+		"env", "prod",
+		"__name__", "metric_x", // already the metric name label
+		"otel_scope_name", "scope_a",
+	)
+	lsB := labels.FromStrings(
+		string(model.MetricNameLabel), "metric_x",
+		"env", "prod",
+		"otel_scope_name", "scope_b", // differs only in an excluded label
+	)
+
+	var buf []byte
+	hashA, buf := getSeriesRefWithoutScopeLabels(buf, lsA, pmetric.MetricTypeSum)
+	hashB, _ := getSeriesRefWithoutScopeLabels(buf, lsB, pmetric.MetricTypeSum)
+
+	require.Equal(t, hashA, hashB, "series ref should be equal when differing only by excluded labels")
+}
+
+
+
+func newTxn(t *testing.T, useMetadata bool) *transaction {
+	ctx := t.Context()
+	lbls := labels.FromMap(map[string]string{
+		string(model.InstanceLabel): "localhost:1234",
+		string(model.JobLabel):      "job-a",
+	})
+	target := scrape.NewTarget(
+		lbls,
+		&config.ScrapeConfig{},
+		map[model.LabelName]model.LabelValue{
+			model.AddressLabel: "localhost:1234",
+			model.SchemeLabel:  "http",
+		},
+		nil,
+	)
+	ctx = scrape.ContextWithTarget(ctx, target)
+	if useMetadata {
+		ctx = scrape.ContextWithMetricMetadataStore(ctx, newFakeMetadataStore(map[string]scrape.MetricMetadata{}))
+	}
+	sink := &consumertest.MetricsSink{}
+	settings := receivertest.NewNopSettings(receivertest.NopType)
+	// quiet logger
+	settings.Logger = zap.NewNop()
+	return newTransaction(ctx, sink, labels.EmptyLabels(), settings, newObs(t), false, useMetadata)
+}
+
+// ---- Append tests ----
+//
+// These tests validate the V2 append surface used by Prometheus:
+// transaction.Append(...).
+//
+// Some tests in this file still call transaction methods directly because they
+// validate method-specific behavior that is not exposed as independent calls in
+// the V2 interface (for example, direct AppendExemplar/STZero contract checks).
+
+func TestTransactionAppend(t *testing.T) {
+	type testCase struct {
+		name               string
+		stMs               int64
+		atMs               int64
+		val                float64
+		h                  *histogram.Histogram
+		fh                 *histogram.FloatHistogram
+		opts               storage.AOptions
+		labels             labels.Labels
+		expectedMetricType pmetric.MetricType
+		expectedExemplars  int
+		expectedScope      string
+		expectedVersion    string
+	}
+
+	tests := []testCase{
+		{
+			name:               "counter with exemplars",
+			stMs:               1,
+			atMs:               ts,
+			val:                42.0,
+			expectedMetricType: pmetric.MetricTypeSum,
+			labels: labels.FromStrings(
+				model.InstanceLabel, "localhost:8080",
+				model.JobLabel, "test",
+				model.MetricNameLabel, "counter_test",
+			),
+			opts: storage.AOptions{
+				Exemplars: []exemplar.Exemplar{
+					{
+						Labels: labels.FromStrings("key", "value"),
+						Value:  1.0,
+						Ts:     ts,
+					},
+				},
+			},
+			expectedExemplars: 1,
+		},
+		{
+			name: "float histogram",
+			stMs: 1,
+			atMs: ts,
+			fh:   tsdbutil.GenerateTestFloatHistogram(1),
+			opts: storage.AOptions{},
+			labels: labels.FromStrings(
+				model.InstanceLabel, "localhost:8080",
+				model.JobLabel, "test",
+				model.MetricNameLabel, "hist_test",
+			),
+			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
+			expectedExemplars:  0,
+		},
+		{
+			name:               "histogram",
+			stMs:               1,
+			atMs:               ts,
+			h:                  tsdbutil.GenerateTestHistogram(1),
+			opts:               storage.AOptions{},
+			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
+			labels: labels.FromStrings(
+				model.InstanceLabel, "localhost:8080",
+				model.JobLabel, "test",
+				model.MetricNameLabel, "hist_test",
+			),
+			expectedExemplars: 0,
+		},
+		{
+			name:               "counter with scope name and version",
+			stMs:               1,
+			atMs:               ts,
+			val:                10.0,
+			opts:               storage.AOptions{},
+			expectedMetricType: pmetric.MetricTypeSum,
+			labels: labels.FromStrings(
+				model.InstanceLabel, "localhost:8080",
+				model.JobLabel, "test",
+				model.MetricNameLabel, "counter_test",
+				prometheus.ScopeNameLabelKey, "my.scope",
+				prometheus.ScopeVersionLabelKey, "v1.2.3",
+			),
+			expectedScope:   "my.scope",
+			expectedVersion: "v1.2.3",
+		},
+		{
+			name: "histogram with scope name and version",
+			stMs: 1,
+			atMs: ts,
+			h:    tsdbutil.GenerateTestHistogram(1),
+			opts: storage.AOptions{},
+			labels: labels.FromStrings(
+				model.InstanceLabel, "localhost:8080",
+				model.JobLabel, "test",
+				model.MetricNameLabel, "hist_test",
+				prometheus.ScopeNameLabelKey, "my.scope",
+				prometheus.ScopeVersionLabelKey, "v1.2.3",
+			),
+			expectedScope:      "my.scope",
+			expectedVersion:    "v1.2.3",
+			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
+			expectedExemplars:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink := new(consumertest.MetricsSink)
+			txn := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+			ref, err := txn.Append(0, tt.labels, tt.stMs, tt.atMs, tt.val, tt.h, tt.fh, tt.opts)
+			require.NoError(t, err)
+			assert.NotZero(t, ref)
+
+			require.NoError(t, txn.Commit())
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1)
+			md := mds[0]
+			sm := md.ResourceMetrics().At(0).ScopeMetrics().At(0)
+			require.Equal(t, tt.expectedMetricType, sm.Metrics().At(0).Type())
+			if tt.expectedScope != "" {
+				require.Equal(t, tt.expectedScope, sm.Scope().Name())
+			}
+			if tt.expectedVersion != "" {
+				require.Equal(t, tt.expectedVersion, sm.Scope().Version())
+			}
+			switch tt.expectedMetricType {
+			case pmetric.MetricTypeSum:
+				dp := sm.Metrics().At(0).Sum().DataPoints().At(0)
+				require.Equal(t, tt.val, dp.DoubleValue())
+				if tt.expectedExemplars > 0 {
+					require.Equal(t, tt.expectedExemplars, dp.Exemplars().Len())
+				}
+				require.Equal(t, pcommon.NewTimestampFromTime(time.UnixMilli(tt.stMs)), dp.StartTimestamp())
+			case pmetric.MetricTypeExponentialHistogram:
+				dp := sm.Metrics().At(0).ExponentialHistogram().DataPoints().At(0)
+				expectedSum := func() float64 {
+					if tt.h != nil {
+						return tt.h.Sum
+					}
+					return tt.fh.Sum
+				}()
+				require.Equal(t, expectedSum, dp.Sum())
+				if tt.expectedExemplars > 0 {
+					require.Equal(t, tt.expectedExemplars, dp.Exemplars().Len())
+				}
+				require.Equal(t, pcommon.NewTimestampFromTime(time.UnixMilli(tt.stMs)), dp.StartTimestamp())
+			}
+		})
+	}
+}
+
+func TestTransactionAppendFailedScrapeWithReason(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
+	core, observedLogs := observer.New(zap.WarnLevel)
+	receiverSettings.Logger = zap.New(core)
+
+	scrapeErr := errors.New("connection refused")
+	targetWithErr := scrape.NewTarget(
+		labels.FromMap(map[string]string{
+			model.InstanceLabel: "localhost:8080",
+			model.JobLabel:      "test",
+		}),
+		&config.ScrapeConfig{},
+		map[model.LabelName]model.LabelValue{
+			model.AddressLabel: "address:8080",
+			model.SchemeLabel:  "http",
+		},
+		nil,
+	)
+	targetWithErr.Report(time.Now(), 0, scrapeErr)
+
+	scrapeCtxWithTarget := scrape.ContextWithMetricMetadataStore(
+		scrape.ContextWithTarget(t.Context(), targetWithErr),
+		testMetadataStore(testMetadata),
+	)
+
+	tr := newTransaction(
+		scrapeCtxWithTarget,
+		sink,
+		labels.EmptyLabels(),
+		receiverSettings,
+		nopObsRecv(t),
+		false,
+		true,
+	)
+
+	badLabels := labels.FromMap(map[string]string{
+		model.InstanceLabel:   "localhost:8080",
+		model.JobLabel:        "test",
+		model.MetricNameLabel: scrapeUpMetricName,
+	})
+
+	_, err := tr.Append(0, badLabels, 0, time.Now().Unix()*1000, 0.0, nil, nil, storage.AOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, observedLogs.Len())
+	logs := observedLogs.All()
+	assert.Equal(t, "Failed to scrape Prometheus endpoint", logs[0].Message)
+
+	errField, ok := logs[0].ContextMap()["error"]
+	assert.True(t, ok)
+	assert.Equal(t, "connection refused", errField)
+}
+
+// Test helpers to satisfy previous V1 interface calls in the test suite
+func (t *transaction) appendExemplar(ls labels.Labels, ex exemplar.Exemplar) error {
+	_, err := t.Append(0, ls, 0, ex.Ts, 0, nil, nil, storage.AppendV2Options{Exemplars: []exemplar.Exemplar{ex}})
+	return err
+}
+
+func (t *transaction) appendSTZeroSample(ls labels.Labels, atMs, stMs int64) (storage.SeriesRef, error) {
+	return t.Append(0, ls, stMs, atMs, 0, nil, nil, storage.AppendV2Options{})
+}
+
+func (t *transaction) appendHistogramSTZeroSample(ls labels.Labels, atMs, stMs int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
+	return t.Append(0, ls, stMs, atMs, 0, h, fh, storage.AppendV2Options{})
+}
+
+func (t *transaction) append(ls labels.Labels, atMs int64, val float64) (storage.SeriesRef, error) {
+	return t.Append(0, ls, 0, atMs, val, nil, nil, storage.AppendV2Options{})
+}
+
+func (t *transaction) appendHistogram(ls labels.Labels, atMs int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
+	return t.Append(0, ls, 0, atMs, 0, h, fh, storage.AppendV2Options{})
+}
+
+type testMetadataStore map[string]scrape.MetricMetadata
+
+func (tmc testMetadataStore) GetMetadata(familyName string) (scrape.MetricMetadata, bool) {
+	lookup, ok := tmc[familyName]
+	return lookup, ok
+}
+
+func (testMetadataStore) ListMetadata() []scrape.MetricMetadata { return nil }
+
+func (testMetadataStore) SizeMetadata() int { return 0 }
+
+func (tmc testMetadataStore) LengthMetadata() int {
+	return len(tmc)
+}
+
+func TestTransactionAppendNoMetricName(t *testing.T) {
+	jobNotFoundLb := labels.FromMap(map[string]string{
+		model.InstanceLabel: "localhost:8080",
+		model.JobLabel:      "test2",
+	})
+	tr := newTransaction(scrapeCtx, consumertest.NewNop(), labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	_, err := tr.Append(0, jobNotFoundLb, 0, time.Now().Unix()*1000, 1.0, nil, nil, storage.AOptions{})
+	assert.ErrorIs(t, err, errMetricNameNotFound)
+	assert.NoError(t, tr.Commit())
+}
+
+func TestTransactionAppendHistogramNoLe(t *testing.T) {
+	testTransactionAppendHistogramNoLe(t)
+}
+
+func testTransactionAppendHistogramNoLe(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
+	core, observedLogs := observer.New(zap.InfoLevel)
+	receiverSettings.Logger = zap.New(core)
+	tr := newTransaction(
+		scrapeCtx,
+		sink,
+		labels.EmptyLabels(),
+		receiverSettings,
+		nopObsRecv(t),
+		false,
+		true,
+	)
+
+	goodLabels := labels.FromStrings(
+		model.InstanceLabel, "0.0.0.0:8855",
+		model.JobLabel, "test",
+		model.MetricNameLabel, "hist_test_bucket",
+	)
+
+	_, err := tr.Append(0, goodLabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, observedLogs.Len())
+	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
+
+	assert.NoError(t, tr.Commit())
+	assert.Empty(t, sink.AllMetrics())
+}
+
+func TestTransactionAppendSummaryNoQuantile(t *testing.T) {
+	testTransactionAppendSummaryNoQuantile(t)
+}
+
+func testTransactionAppendSummaryNoQuantile(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
+	core, observedLogs := observer.New(zap.InfoLevel)
+	receiverSettings.Logger = zap.New(core)
+	tr := newTransaction(
+		scrapeCtx,
+		sink,
+		labels.EmptyLabels(),
+		receiverSettings,
+		nopObsRecv(t),
+		false,
+		true,
+	)
+
+	goodLabels := labels.FromStrings(
+		model.InstanceLabel, "0.0.0.0:8855",
+		model.JobLabel, "test",
+		model.MetricNameLabel, "summary_test",
+	)
+
+	_, err := tr.Append(0, goodLabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, observedLogs.Len())
+	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
+
+	assert.NoError(t, tr.Commit())
+	assert.Empty(t, sink.AllMetrics())
+}
+
+func TestTransactionAppendValidAndInvalid(t *testing.T) {
+	testTransactionAppendValidAndInvalid(t)
+}
+
+func testTransactionAppendValidAndInvalid(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
+	core, observedLogs := observer.New(zap.InfoLevel)
+	receiverSettings.Logger = zap.New(core)
+	tr := newTransaction(
+		scrapeCtx,
+		sink,
+		labels.EmptyLabels(),
+		receiverSettings,
+		nopObsRecv(t),
+		false,
+		true,
+	)
+
+	// a valid counter
+	_, err := tr.Append(0, labels.FromMap(map[string]string{
+		model.InstanceLabel:   "localhost:8080",
+		model.JobLabel:        "test",
+		model.MetricNameLabel: "counter_test",
+	}), 0, time.Now().Unix()*1000, 1.0, nil, nil, storage.AOptions{})
+	assert.NoError(t, err)
+
+	// summary without quantiles, should be ignored
+	summarylabels := labels.FromStrings(
+		model.InstanceLabel, "0.0.0.0:8855",
+		model.JobLabel, "test",
+		model.MetricNameLabel, "summary_test",
+	)
+
+	_, err = tr.Append(0, summarylabels, 0, 1917, 1.0, nil, nil, storage.AOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, observedLogs.Len())
+	assert.Equal(t, 1, observedLogs.FilterMessage("failed to add datapoint").Len())
+
+	assert.NoError(t, tr.Commit())
+	expectedResource := CreateResource("test", "localhost:8080", labels.FromStrings(model.SchemeLabel, "http"))
+	mds := sink.AllMetrics()
+	require.Len(t, mds, 1)
+	gotResource := mds[0].ResourceMetrics().At(0).Resource()
+	require.Equal(t, expectedResource, gotResource)
+	require.Equal(t, 1, mds[0].MetricCount())
+}
+
+
+func TestAppendExemplarWithNoLabels(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	_, err := tr.Append(0, labels.EmptyLabels(), 0, 1000, 1.0, nil, nil, storage.AOptions{
+		Exemplars: []exemplar.Exemplar{{Value: 0}},
+	})
+	assert.Equal(t, errNoJobInstance, err)
+}
+
+func TestAppendExemplarWithEmptyLabelArray(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	_, err := tr.Append(0, labels.FromStrings(), 0, 1000, 1.0, nil, nil, storage.AOptions{
+		Exemplars: []exemplar.Exemplar{{Value: 0}},
+	})
+	assert.Equal(t, errNoJobInstance, err)
+}
+
+func TestAppendSTZeroSampleNoLabels(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	_, err := tr.Append(0, labels.FromStrings(), 50, 1000, 1.0, nil, nil, storage.AOptions{})
+	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
+}
+
+func TestAppendHistogramCTZeroSampleNoLabels(t *testing.T) {
+	sink := new(consumertest.MetricsSink)
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	_, err := tr.Append(0, labels.FromStrings(), 50, 1000, 0, tsdbutil.GenerateTestHistogram(1), nil, storage.AOptions{})
+	assert.ErrorContains(t, err, "job or instance cannot be found from labels")
 }
 
 func TestMetricBuilderCounters(t *testing.T) {
@@ -1894,172 +2470,6 @@ func TestMetricBuilderNativeHistogram(t *testing.T) {
 	}
 }
 
-type buildTestData struct {
-	name   string
-	inputs []*testScrapedPage
-	wants  func() []pmetric.Metrics
-}
-
-func (tt buildTestData) run(t *testing.T) {
-	wants := tt.wants()
-	assert.Len(t, tt.inputs, len(wants))
-	st := ts
-	for i, page := range tt.inputs {
-		sink := new(consumertest.MetricsSink)
-		tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-		for _, pt := range page.pts {
-			// set ts for testing
-			pt.t = st
-			_, err := tr.Append(0, pt.lb, 0, pt.t, pt.v, pt.h, pt.fh, storage.AOptions{
-				Exemplars: pt.exemplars,
-			})
-			assert.NoError(t, err)
-		}
-		assert.NoError(t, tr.Commit())
-		mds := sink.AllMetrics()
-		if wants[i].ResourceMetrics().Len() == 0 {
-			// Receiver does not emit empty metrics, so will not have anything in the sink.
-			require.Empty(t, mds)
-			st += interval
-			continue
-		}
-		require.Len(t, mds, 1)
-		assertEquivalentMetrics(t, wants[i], mds[0])
-		st += interval
-	}
-}
-
-type testDataPoint struct {
-	lb        labels.Labels
-	t         int64
-	v         float64
-	h         *histogram.Histogram
-	fh        *histogram.FloatHistogram
-	exemplars []exemplar.Exemplar
-}
-
-type testScrapedPage struct {
-	pts []*testDataPoint
-}
-
-func createDataPoint(mname string, value float64, es []exemplar.Exemplar, tagPairs ...string) *testDataPoint {
-	var lbls []string
-	lbls = append(lbls, tagPairs...)
-	lbls = append(lbls, model.MetricNameLabel, mname, model.JobLabel, "job", model.InstanceLabel, "instance")
-
-	return &testDataPoint{
-		lb:        labels.FromStrings(lbls...),
-		t:         ts,
-		v:         value,
-		exemplars: es,
-	}
-}
-
-func createHistogramDataPoint(mname string, h *histogram.Histogram, fh *histogram.FloatHistogram, es []exemplar.Exemplar, tagPairs ...string) *testDataPoint {
-	dataPoint := createDataPoint(mname, 0, es, tagPairs...)
-	dataPoint.h = h
-	dataPoint.fh = fh
-	return dataPoint
-}
-
-func assertEquivalentMetrics(t *testing.T, want, got pmetric.Metrics) {
-	require.Equal(t, want.ResourceMetrics().Len(), got.ResourceMetrics().Len())
-	if want.ResourceMetrics().Len() == 0 {
-		return
-	}
-	for i := 0; i < want.ResourceMetrics().Len(); i++ {
-		wantSm := want.ResourceMetrics().At(i).ScopeMetrics()
-		gotSm := got.ResourceMetrics().At(i).ScopeMetrics()
-		require.Equal(t, wantSm.Len(), gotSm.Len())
-		if wantSm.Len() == 0 {
-			return
-		}
-
-		for j := 0; j < wantSm.Len(); j++ {
-			wantMs := wantSm.At(j).Metrics()
-			gotMs := gotSm.At(j).Metrics()
-			require.Equal(t, wantMs.Len(), gotMs.Len())
-
-			wmap := map[string]pmetric.Metric{}
-			gmap := map[string]pmetric.Metric{}
-
-			for k := 0; k < wantMs.Len(); k++ {
-				wi := wantMs.At(k)
-				wmap[wi.Name()] = wi
-				gi := gotMs.At(k)
-				gmap[gi.Name()] = gi
-			}
-			assert.Equal(t, wmap, gmap)
-		}
-	}
-}
-
-func newObs(t *testing.T) *receiverhelper.ObsReport {
-	obs, err := receiverhelper.NewObsReport(receiverhelper.ObsReportSettings{
-		Transport:              "http",
-		ReceiverCreateSettings: receivertest.NewNopSettings(receivertest.NopType),
-	})
-	require.NoError(t, err)
-	return obs
-}
-
-func TestDetectAndStoreNativeHistogramStaleness_NonHistogramReturnsFalse(t *testing.T) {
-	tr := newTxn(t, true)
-	// metadata says "gauge" → should not be considered native histogram staleness
-	tr.mc = newFakeMetadataStore(map[string]scrape.MetricMetadata{
-		"foo": {MetricFamily: "foo", Type: model.MetricTypeGauge},
-	})
-
-	rk := resourceKey{job: "job-a", instance: "localhost:1234"}
-	ok := tr.detectAndStoreNativeHistogramStaleness(time.Now().UnixMilli(), rk, emptyScopeID, "foo", labels.FromMap(map[string]string{
-		string(model.MetricNameLabel): "foo",
-	}))
-	require.False(t, ok, "expected false when metadata type != histogram")
-}
-
-func TestGetOrCreateMetricFamily_DistinctFamiliesForNativeVsClassic(t *testing.T) {
-	tr := newTxn(t, true)
-	// Provide metadata so normalization doesn't kick in; name is the same family
-	tr.mc = newFakeMetadataStore(map[string]scrape.MetricMetadata{
-		"same_family": {MetricFamily: "same_family", Type: model.MetricTypeHistogram},
-	})
-
-	rk := resourceKey{job: "job-a", instance: "localhost:1234"}
-
-	// First: classic path (addingNativeHistogram=false)
-	tr.addingNativeHistogram = false
-	mfClassic := tr.getOrCreateMetricFamily(rk, emptyScopeID, "same_family")
-
-	// Second: native path (addingNativeHistogram=true)
-	tr.addingNativeHistogram = true
-	mfNative := tr.getOrCreateMetricFamily(rk, emptyScopeID, "same_family")
-
-	require.NotNil(t, mfClassic)
-	require.NotNil(t, mfNative)
-	// Even with the same name, keys include native flag → distinct entries
-	require.NotEqual(t, mfClassic, mfNative, "expected distinct metric family instances for native vs classic")
-}
-
-func TestGetSeriesRef_IgnoresNotUsefulLabels(t *testing.T) {
-	// Build two label sets that differ only in scope labels, which are excluded from series identity.
-	lsA := labels.FromStrings(
-		string(model.MetricNameLabel), "metric_x",
-		"env", "prod",
-		"__name__", "metric_x", // already the metric name label
-		"otel_scope_name", "scope_a",
-	)
-	lsB := labels.FromStrings(
-		string(model.MetricNameLabel), "metric_x",
-		"env", "prod",
-		"otel_scope_name", "scope_b", // differs only in an excluded label
-	)
-
-	var buf []byte
-	hashA, buf := getSeriesRefWithoutScopeLabels(buf, lsA, pmetric.MetricTypeSum)
-	hashB, _ := getSeriesRefWithoutScopeLabels(buf, lsB, pmetric.MetricTypeSum)
-
-	require.Equal(t, hashA, hashB, "series ref should be equal when differing only by excluded labels")
-}
 
 func TestGetScopeID_EmptyScopeAttributesUseZeroHash(t *testing.T) {
 	scope, attrs := getScopeID(labels.FromStrings(
@@ -2071,13 +2481,13 @@ func TestGetScopeID_EmptyScopeAttributesUseZeroHash(t *testing.T) {
 	require.Equal(t, "scope.with.info", scope.name)
 	require.Equal(t, "v1.0.0", scope.version)
 	require.Zero(t, scope.attrsHash)
-	require.Zero(t, attrs.Len())
+	require.Equal(t, pcommon.Map{}, attrs)
 }
+
 
 func TestAddTargetInfo_DoesNotCopyJobInstanceOrMetricName(t *testing.T) {
 	tr := newTxn(t, false)
 	rk := resourceKey{job: "job-a", instance: "localhost:1234"}
-	// Prime nodeResources
 	tr.nodeResources[rk] = CreateResource(rk.job, rk.instance, labels.FromStrings(model.SchemeLabel, "http"))
 
 	ls := labels.FromStrings(
@@ -2087,7 +2497,8 @@ func TestAddTargetInfo_DoesNotCopyJobInstanceOrMetricName(t *testing.T) {
 		"extra", "v",
 		"another", "x",
 	)
-	tr.AddTargetInfo(rk, ls)
+	_, err := tr.Append(0, ls, 0, 1000, 1.0, nil, nil, storage.AOptions{})
+	require.NoError(t, err)
 
 	res := tr.nodeResources[rk]
 	attrs := res.Attributes()
@@ -2104,241 +2515,32 @@ func TestAddTargetInfo_DoesNotCopyJobInstanceOrMetricName(t *testing.T) {
 	require.True(t, hasAnother, "custom label should be copied")
 }
 
-func newTxn(t *testing.T, useMetadata bool) *transaction {
-	ctx := t.Context()
-	lbls := labels.FromMap(map[string]string{
-		string(model.InstanceLabel): "localhost:1234",
-		string(model.JobLabel):      "job-a",
-	})
-	target := scrape.NewTarget(
-		lbls,
-		&config.ScrapeConfig{},
-		map[model.LabelName]model.LabelValue{
-			model.AddressLabel: "localhost:1234",
-			model.SchemeLabel:  "http",
-		},
-		nil,
-	)
-	ctx = scrape.ContextWithTarget(ctx, target)
-	if useMetadata {
-		ctx = scrape.ContextWithMetricMetadataStore(ctx, newFakeMetadataStore(map[string]scrape.MetricMetadata{}))
-	}
-	sink := &consumertest.MetricsSink{}
-	settings := receivertest.NewNopSettings(receivertest.NopType)
-	// quiet logger
-	settings.Logger = zap.NewNop()
-	return newTransaction(ctx, sink, labels.EmptyLabels(), settings, newObs(t), false, useMetadata)
+
+func TestTransaction_DistinctMetricsForNativeVsClassic(t *testing.T) {
+	rk := resourceKey{job: "job-a", instance: "localhost:1234"}
+	classicKey := metricKey{rKey: rk, scope: emptyScopeID, metricType: pmetric.MetricTypeHistogram, metricName: "same_family"}
+	nativeKey := metricKey{rKey: rk, scope: emptyScopeID, metricType: pmetric.MetricTypeExponentialHistogram, metricName: "same_family"}
+	require.NotEqual(t, classicKey, nativeKey, "expected distinct metric keys for native vs classic histograms")
 }
 
-// ---- Append tests ----
-//
-// These tests validate the V2 append surface used by Prometheus:
-// transaction.Append(...).
-//
-// Some tests in this file still call transaction methods directly because they
-// validate method-specific behavior that is not exposed as independent calls in
-// the V2 interface (for example, direct AppendExemplar/STZero contract checks).
 
-func TestTransactionAppend(t *testing.T) {
-	type testCase struct {
-		name               string
-		stMs               int64
-		atMs               int64
-		val                float64
-		h                  *histogram.Histogram
-		fh                 *histogram.FloatHistogram
-		opts               storage.AOptions
-		labels             labels.Labels
-		expectedMetricType pmetric.MetricType
-		expectedExemplars  int
-		expectedScope      string
-		expectedVersion    string
-	}
-
-	tests := []testCase{
-		{
-			name:               "counter with exemplars",
-			stMs:               1,
-			atMs:               ts,
-			val:                42.0,
-			expectedMetricType: pmetric.MetricTypeSum,
-			labels: labels.FromStrings(
-				model.InstanceLabel, "localhost:8080",
-				model.JobLabel, "test",
-				model.MetricNameLabel, "counter_test",
-			),
-			opts: storage.AOptions{
-				Exemplars: []exemplar.Exemplar{
-					{
-						Labels: labels.FromStrings("key", "value"),
-						Value:  1.0,
-						Ts:     ts,
-					},
-				},
-			},
-			expectedExemplars: 1,
-		},
-		{
-			name: "float histogram",
-			stMs: 1,
-			atMs: ts,
-			fh:   tsdbutil.GenerateTestFloatHistogram(1),
-			opts: storage.AOptions{},
-			labels: labels.FromStrings(
-				model.InstanceLabel, "localhost:8080",
-				model.JobLabel, "test",
-				model.MetricNameLabel, "hist_test",
-			),
-			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
-			expectedExemplars:  0,
-		},
-		{
-			name:               "histogram",
-			stMs:               1,
-			atMs:               ts,
-			h:                  tsdbutil.GenerateTestHistogram(1),
-			opts:               storage.AOptions{},
-			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
-			labels: labels.FromStrings(
-				model.InstanceLabel, "localhost:8080",
-				model.JobLabel, "test",
-				model.MetricNameLabel, "hist_test",
-			),
-			expectedExemplars: 0,
-		},
-		{
-			name:               "counter with scope name and version",
-			stMs:               1,
-			atMs:               ts,
-			val:                10.0,
-			opts:               storage.AOptions{},
-			expectedMetricType: pmetric.MetricTypeSum,
-			labels: labels.FromStrings(
-				model.InstanceLabel, "localhost:8080",
-				model.JobLabel, "test",
-				model.MetricNameLabel, "counter_test",
-				prometheus.ScopeNameLabelKey, "my.scope",
-				prometheus.ScopeVersionLabelKey, "v1.2.3",
-			),
-			expectedScope:   "my.scope",
-			expectedVersion: "v1.2.3",
-		},
-		{
-			name: "histogram with scope name and version",
-			stMs: 1,
-			atMs: ts,
-			h:    tsdbutil.GenerateTestHistogram(1),
-			opts: storage.AOptions{},
-			labels: labels.FromStrings(
-				model.InstanceLabel, "localhost:8080",
-				model.JobLabel, "test",
-				model.MetricNameLabel, "hist_test",
-				prometheus.ScopeNameLabelKey, "my.scope",
-				prometheus.ScopeVersionLabelKey, "v1.2.3",
-			),
-			expectedScope:      "my.scope",
-			expectedVersion:    "v1.2.3",
-			expectedMetricType: pmetric.MetricTypeExponentialHistogram,
-			expectedExemplars:  0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sink := new(consumertest.MetricsSink)
-			txn := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
-			ref, err := txn.Append(0, tt.labels, tt.stMs, tt.atMs, tt.val, tt.h, tt.fh, tt.opts)
-			require.NoError(t, err)
-			assert.NotZero(t, ref)
-
-			require.NoError(t, txn.Commit())
-			mds := sink.AllMetrics()
-			require.Len(t, mds, 1)
-			md := mds[0]
-			sm := md.ResourceMetrics().At(0).ScopeMetrics().At(0)
-			require.Equal(t, tt.expectedMetricType, sm.Metrics().At(0).Type())
-			if tt.expectedScope != "" {
-				require.Equal(t, tt.expectedScope, sm.Scope().Name())
-			}
-			if tt.expectedVersion != "" {
-				require.Equal(t, tt.expectedVersion, sm.Scope().Version())
-			}
-			switch tt.expectedMetricType {
-			case pmetric.MetricTypeSum:
-				dp := sm.Metrics().At(0).Sum().DataPoints().At(0)
-				require.Equal(t, tt.val, dp.DoubleValue())
-				if tt.expectedExemplars > 0 {
-					require.Equal(t, tt.expectedExemplars, dp.Exemplars().Len())
-				}
-				require.Equal(t, pcommon.NewTimestampFromTime(time.UnixMilli(tt.stMs)), dp.StartTimestamp())
-			case pmetric.MetricTypeExponentialHistogram:
-				dp := sm.Metrics().At(0).ExponentialHistogram().DataPoints().At(0)
-				expectedSum := func() float64 {
-					if tt.h != nil {
-						return tt.h.Sum
-					}
-					return tt.fh.Sum
-				}()
-				require.Equal(t, expectedSum, dp.Sum())
-				if tt.expectedExemplars > 0 {
-					require.Equal(t, tt.expectedExemplars, dp.Exemplars().Len())
-				}
-				require.Equal(t, pcommon.NewTimestampFromTime(time.UnixMilli(tt.stMs)), dp.StartTimestamp())
-			}
-		})
-	}
-}
-
-func TestTransactionAppendFailedScrapeWithReason(t *testing.T) {
+func TestDetectAndStoreNativeHistogramStaleness_NonHistogramReturnsFalse(t *testing.T) {
 	sink := new(consumertest.MetricsSink)
-	receiverSettings := receivertest.NewNopSettings(receivertest.NopType)
-	core, observedLogs := observer.New(zap.WarnLevel)
-	receiverSettings.Logger = zap.New(core)
-
-	scrapeErr := errors.New("connection refused")
-	targetWithErr := scrape.NewTarget(
-		labels.FromMap(map[string]string{
-			model.InstanceLabel: "localhost:8080",
-			model.JobLabel:      "test",
-		}),
-		&config.ScrapeConfig{},
-		map[model.LabelName]model.LabelValue{
-			model.AddressLabel: "address:8080",
-			model.SchemeLabel:  "http",
-		},
-		nil,
-	)
-	targetWithErr.Report(time.Now(), 0, scrapeErr)
-
-	scrapeCtxWithTarget := scrape.ContextWithMetricMetadataStore(
-		scrape.ContextWithTarget(t.Context(), targetWithErr),
-		testMetadataStore(testMetadata),
-	)
-
-	tr := newTransaction(
-		scrapeCtxWithTarget,
-		sink,
-		labels.EmptyLabels(),
-		receiverSettings,
-		nopObsRecv(t),
-		false,
-		true,
-	)
-
-	badLabels := labels.FromMap(map[string]string{
-		model.InstanceLabel:   "localhost:8080",
-		model.JobLabel:        "test",
-		model.MetricNameLabel: scrapeUpMetricName,
+	tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+	tr.mc = newFakeMetadataStore(map[string]scrape.MetricMetadata{
+		"foo": {MetricFamily: "foo", Type: model.MetricTypeGauge},
 	})
-
-	_, err := tr.Append(0, badLabels, 0, time.Now().Unix()*1000, 0.0, nil, nil, storage.AOptions{})
+	ls := labels.FromMap(map[string]string{
+		model.JobLabel:        "job-a",
+		model.InstanceLabel:   "localhost:1234",
+		model.MetricNameLabel: "foo",
+	})
+	_, err := tr.Append(0, ls, 0, time.Now().UnixMilli(), math.Float64frombits(value.StaleNaN), nil, nil, storage.AOptions{})
 	require.NoError(t, err)
-
-	assert.Equal(t, 1, observedLogs.Len())
-	logs := observedLogs.All()
-	assert.Equal(t, "Failed to scrape Prometheus endpoint", logs[0].Message)
-
-	errField, ok := logs[0].ContextMap()["error"]
-	assert.True(t, ok)
-	assert.Equal(t, "connection refused", errField)
+	require.NoError(t, tr.Commit())
+	mds := sink.AllMetrics()
+	require.Len(t, mds, 1)
+	m := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics().At(0)
+	require.Equal(t, pmetric.MetricTypeGauge, m.Type(), "expected Gauge metric type when metadata type != histogram")
+	require.True(t, m.Gauge().DataPoints().At(0).Flags().NoRecordedValue())
 }

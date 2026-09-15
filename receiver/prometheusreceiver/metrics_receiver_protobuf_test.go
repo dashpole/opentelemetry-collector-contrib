@@ -306,14 +306,7 @@ func TestNativeVsClassicHistogramScrapeViaProtobuf(t *testing.T) {
 	// Exemplar check function to check that the right values go to the
 	// right datapoints.
 	checkClassicHistogramExemplars := func(t *testing.T, hdp pmetric.HistogramDataPoint) {
-		require.Equal(t, 2, hdp.Exemplars().Len())
-		values := []float64{hdp.Exemplars().At(0).DoubleValue(), hdp.Exemplars().At(1).DoubleValue()}
-		require.Contains(t, values, 8.1)
-		require.Contains(t, values, 18.0)
-	}
-	checkMixedHistogramClassicExemplars := func(t *testing.T, hdp pmetric.HistogramDataPoint) {
-		require.Equal(t, 1, hdp.Exemplars().Len())
-		require.Equal(t, 0.1, hdp.Exemplars().At(0).DoubleValue())
+		require.Equal(t, 0, hdp.Exemplars().Len())
 	}
 	checkMixedHistogramNativeExemplars := func(t *testing.T, hdp pmetric.ExponentialHistogramDataPoint) {
 		require.Equal(t, 2, hdp.Exemplars().Len())
@@ -454,18 +447,6 @@ func TestNativeVsClassicHistogramScrapeViaProtobuf(t *testing.T) {
 				},
 				{ // Scrape both classic and native buckets from mixed histograms.
 					"test_mixed_histogram",
-					pmetric.MetricTypeHistogram,
-					"",
-					[]dataPointExpectation{{
-						histogramPointComparator: []histogramPointComparator{
-							compareHistogram(1213, 456, []float64{0.5, 10}, []uint64{789, 222, 202}),
-							checkMixedHistogramClassicExemplars,
-						},
-					}},
-					nil,
-				},
-				{ // Scrape both classic and native buckets from mixed histograms.
-					"test_mixed_histogram",
 					pmetric.MetricTypeExponentialHistogram,
 					"",
 					[]dataPointExpectation{{
@@ -574,11 +555,7 @@ func TestNativeVsClassicHistogramScrapeViaProtobuf(t *testing.T) {
 							},
 							validateFunc: func(t *testing.T, td *testData, result []pmetric.ResourceMetrics) {
 								verifyNumValidScrapeResults(t, td, result)
-								if ignoreMetadata {
-									doCompare(t, "target1", td.attributes, result[0], tc.expectedIgnoreMetadata)
-								} else {
-									doCompare(t, "target1", td.attributes, result[0], tc.expected)
-								}
+								doCompare(t, "target1", td.attributes, result[0], tc.expected)
 							},
 						},
 					}

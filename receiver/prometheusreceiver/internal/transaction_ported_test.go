@@ -4,7 +4,9 @@
 package internal
 
 import (
+	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,28 +14,18 @@ import (
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/scrape"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/receiver/receivertest"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
-
-type testMetadataStore map[string]scrape.MetricMetadata
-
-func (tmc testMetadataStore) GetMetadata(familyName string) (scrape.MetricMetadata, bool) {
-	lookup, ok := tmc[familyName]
-	return lookup, ok
-}
-
-func (testMetadataStore) ListMetadata() []scrape.MetricMetadata { return nil }
-
-func (testMetadataStore) SizeMetadata() int { return 0 }
-
-func (tmc testMetadataStore) LengthMetadata() int {
-	return len(tmc)
-}
 
 var mc = testMetadataStore{
 	"counter": scrape.MetricMetadata{
@@ -102,9 +94,52 @@ var mc = testMetadataStore{
 		Help:         "This is some help for an unknown metric",
 		Unit:         "?",
 	},
+	"request_duration_seconds": scrape.MetricMetadata{
+		MetricFamily: "request_duration_seconds",
+		Type:         model.MetricTypeHistogram,
+		Help:         "This is some help for a histogram",
+		Unit:         "ms",
+	},
 }
 
-func TestMetricGroupData_toDistributionUnitTest(t *testing.T) {
+func newCtxWithMeta(meta scrape.MetricMetadataStore) context.Context {
+	return scrape.ContextWithMetricMetadataStore(scrape.ContextWithTarget(context.Background(), target), meta)
+}
+
+func convertTestPageClassicHistogramsToNHCBWithMeta(pts []*testDataPoint, meta testMetadataStore, defaultName string) []*testDataPoint {
+	var adjusted []*testDataPoint
+	var atMs int64
+	for _, pt := range pts {
+		cp := *pt
+		if cp.t != 0 {
+			atMs = cp.t
+		}
+		mname := cp.lb.Get(model.MetricNameLabel)
+		if mname == "value" || strings.HasSuffix(mname, "_bucket") {
+			mname = defaultName + "_bucket"
+		} else if strings.HasSuffix(mname, "_sum") {
+			mname = defaultName + "_sum"
+		} else if strings.HasSuffix(mname, "_count") {
+			mname = defaultName + "_count"
+		} else if strings.HasSuffix(mname, "_created") {
+			mname = defaultName + "_created"
+		}
+		lbB := labels.NewBuilder(cp.lb)
+		lbB.Set(model.MetricNameLabel, mname)
+		cp.lb = lbB.Labels()
+		adjusted = append(adjusted, &cp)
+	}
+	res := convertTestPageClassicHistogramsToNHCB(adjusted)
+	for _, r := range res {
+		if r.t == 0 {
+			r.t = atMs
+		}
+	}
+	return res
+}
+
+
+func TestTransaction_toDistributionUnitTest(t *testing.T) {
 	type scrape struct {
 		at         int64
 		value      float64
@@ -250,39 +285,47 @@ func TestMetricGroupData_toDistributionUnitTest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily(tt.metricName, mc, zap.NewNop(), false, false)
-			for i, tv := range tt.scrapes {
-				var lbls labels.Labels
+			sink := new(consumertest.MetricsSink)
+			core, observedLogs := observer.New(zap.InfoLevel)
+			settings := receivertest.NewNopSettings(receivertest.NopType)
+			settings.Logger = zap.New(core)
+			ctx := newCtxWithMeta(testMetadataStore(mc))
+			tr := newTransaction(ctx, sink, labels.EmptyLabels(), settings, nopObsRecv(t), false, true)
+			var pts []*testDataPoint
+			for _, tv := range tt.scrapes {
+				lbBuilder := labels.NewBuilder(tt.labels)
 				if tv.extraLabel.Name != "" {
-					lbls = labels.NewBuilder(tt.labels).Set(tv.extraLabel.Name, tv.extraLabel.Value).Labels()
-				} else {
-					lbls = tt.labels.Copy()
+					lbBuilder.Set(tv.extraLabel.Name, tv.extraLabel.Value)
 				}
-				sRef, _ := getSeriesRefWithoutScopeLabels(nil, lbls, mp.mtype)
-				err := mp.addSeries(sRef, tv.metric, lbls, tv.at, tv.value)
-				if tt.wantErr {
-					if i != 0 {
-						require.Error(t, err)
-					}
-				} else {
-					require.NoError(t, err)
-				}
+				lbBuilder.Set(model.InstanceLabel, "localhost:8080")
+				lbBuilder.Set(model.JobLabel, "test")
+				lbBuilder.Set(model.MetricNameLabel, tv.metric)
+				pts = append(pts, &testDataPoint{
+					lb: lbBuilder.Labels(),
+					t:  tv.at,
+					v:  tv.value,
+				})
 			}
 			if tt.wantErr {
-				// Don't check the result if we got an error
+				for _, pt := range pts {
+					_, _ = tr.Append(0, pt.lb, 0, pt.t, pt.v, nil, nil, storage.AOptions{})
+				}
+				require.Greater(t, observedLogs.FilterMessage("failed to add datapoint").Len(), 0)
 				return
 			}
-
-			require.Len(t, mp.groups, 1)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-
+			converted := convertTestPageClassicHistogramsToNHCBWithMeta(pts, mc, tt.metricName)
+			for _, pt := range converted {
+				_, err := tr.Append(0, pt.lb, 0, pt.t, pt.v, pt.h, pt.fh, storage.AOptions{})
+				require.NoError(t, err)
+			}
+			require.NoError(t, tr.Commit())
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1, "Exactly one metric payload expected")
+			sl := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
 			require.Equal(t, 1, sl.Len(), "Exactly one metric expected")
 			metric := sl.At(0)
 			require.Equal(t, mc[tt.metricName].Help, metric.Description(), "Expected help metadata in metric description")
 			require.Equal(t, mc[tt.metricName].Unit, metric.Unit(), "Expected unit metadata in metric")
-
 			hdpL := metric.Histogram().DataPoints()
 			require.Equal(t, 1, hdpL.Len(), "Exactly one point expected")
 			got := hdpL.At(0)
@@ -292,7 +335,7 @@ func TestMetricGroupData_toDistributionUnitTest(t *testing.T) {
 	}
 }
 
-func TestMetricGroupData_toNHCBDistributionUnitTest(t *testing.T) {
+func TestTransaction_toNHCBDistributionUnitTest(t *testing.T) {
 	tests := []struct {
 		name                string
 		metricName          string
@@ -525,20 +568,25 @@ func TestMetricGroupData_toNHCBDistributionUnitTest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily(tt.metricName, mc, zap.NewNop(), false, false)
-			sRef, _ := getSeriesRefWithoutScopeLabels(nil, tt.labels, mp.mtype)
-
-			err := mp.addNHCBSeries(sRef, tt.metricName, tt.labels, tt.intervalStartTimeMs, tt.integerHistogram, tt.floatHistogram)
+			sink := new(consumertest.MetricsSink)
+			ctx := newCtxWithMeta(testMetadataStore(mc))
+			tr := newTransaction(ctx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+			lbBuilder := labels.NewBuilder(tt.labels)
+			lbBuilder.Set(model.InstanceLabel, "localhost:8080")
+			lbBuilder.Set(model.JobLabel, "test")
+			lbBuilder.Set(model.MetricNameLabel, tt.metricName)
+			_, err := tr.Append(0, lbBuilder.Labels(), 0, tt.intervalStartTimeMs, 0, tt.integerHistogram, tt.floatHistogram, storage.AOptions{})
 			require.NoError(t, err)
-
-			require.Len(t, mp.groups, 1)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-
+			require.NoError(t, tr.Commit())
+			if tt.wantErr {
+				require.Empty(t, sink.AllMetrics())
+				return
+			}
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1, "Exactly one metric payload expected")
+			sl := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
 			require.Equal(t, 1, sl.Len(), "Exactly one metric expected")
 			metric := sl.At(0)
-
 			hdpL := metric.Histogram().DataPoints()
 			require.Equal(t, 1, hdpL.Len(), "Exactly one point expected")
 			got := hdpL.At(0)
@@ -548,7 +596,7 @@ func TestMetricGroupData_toNHCBDistributionUnitTest(t *testing.T) {
 	}
 }
 
-func TestMetricGroupData_toNHCBDistributionRejectsNonzeroSumWithZeroCount(t *testing.T) {
+func TestTransaction_toNHCBDistributionRejectsNonzeroSumWithZeroCount(t *testing.T) {
 	tests := []struct {
 		name             string
 		integerHistogram *histogram.Histogram
@@ -572,21 +620,24 @@ func TestMetricGroupData_toNHCBDistributionRejectsNonzeroSumWithZeroCount(t *tes
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily("histogram", mc, zap.NewNop(), false, false)
-			lbls := labels.FromMap(map[string]string{"a": "A"})
-			sRef, _ := getSeriesRefWithoutScopeLabels(nil, lbls, mp.mtype)
-
-			err := mp.addNHCBSeries(sRef, "histogram", lbls, 11, tt.integerHistogram, tt.floatHistogram)
+			sink := new(consumertest.MetricsSink)
+			tr := newTransaction(scrapeCtx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+			lbls := labels.FromMap(map[string]string{
+				model.InstanceLabel:   "localhost:8080",
+				model.JobLabel:        "test",
+				model.MetricNameLabel: "hist_test",
+				"a":                   "A",
+			})
+			_, err := tr.Append(0, lbls, 0, 11, 0, tt.integerHistogram, tt.floatHistogram, storage.AOptions{})
 			require.NoError(t, err)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-			require.Zero(t, sl.Len())
+			require.NoError(t, tr.Commit())
+			require.Empty(t, sink.AllMetrics())
 		})
 	}
 }
 
-func TestMetricGroupData_toExponentialDistributionUnitTest(t *testing.T) {
+
+func TestTransaction_toExponentialDistributionUnitTest(t *testing.T) {
 	type scrape struct {
 		at         int64
 		metric     string
@@ -721,52 +772,34 @@ func TestMetricGroupData_toExponentialDistributionUnitTest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily(tt.metricName, mc, zap.NewNop(), true, false)
-			for i, tv := range tt.scrapes {
-				var lbls labels.Labels
+			sink := new(consumertest.MetricsSink)
+			ctx := newCtxWithMeta(testMetadataStore(mc))
+			tr := newTransaction(ctx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
+			for _, tv := range tt.scrapes {
+				lbBuilder := labels.NewBuilder(tt.labels)
 				if tv.extraLabel.Name != "" {
-					lbls = labels.NewBuilder(tt.labels).Set(tv.extraLabel.Name, tv.extraLabel.Value).Labels()
-				} else {
-					lbls = tt.labels.Copy()
+					lbBuilder.Set(tv.extraLabel.Name, tv.extraLabel.Value)
 				}
-
-				var err error
-				switch {
-				case tv.integerHistogram != nil:
-					mp.mtype = pmetric.MetricTypeExponentialHistogram
-					sRef, _ := getSeriesRefWithoutScopeLabels(nil, lbls, mp.mtype)
-					err = mp.addExponentialHistogramSeries(sRef, tv.metric, lbls, tv.at, tv.integerHistogram, nil)
-				case tv.floatHistogram != nil:
-					mp.mtype = pmetric.MetricTypeExponentialHistogram
-					sRef, _ := getSeriesRefWithoutScopeLabels(nil, lbls, mp.mtype)
-					err = mp.addExponentialHistogramSeries(sRef, tv.metric, lbls, tv.at, nil, tv.floatHistogram)
-				default:
-					sRef, _ := getSeriesRefWithoutScopeLabels(nil, lbls, mp.mtype)
-					err = mp.addSeries(sRef, tv.metric, lbls, tv.at, tv.value)
+				lbBuilder.Set(model.InstanceLabel, "localhost:8080")
+				lbBuilder.Set(model.JobLabel, "test")
+				mName := tv.metric
+				if mName == "value" {
+					mName = tt.metricName
+				} else if mName == "value_created" {
+					mName = tt.metricName + "_created"
 				}
-				if tt.wantErr {
-					if i != 0 {
-						require.Error(t, err)
-					}
-				} else {
-					require.NoError(t, err)
-				}
+				lbBuilder.Set(model.MetricNameLabel, mName)
+				_, err := tr.Append(0, lbBuilder.Labels(), 0, tv.at, tv.value, tv.integerHistogram, tv.floatHistogram, storage.AOptions{})
+				require.NoError(t, err)
 			}
-			if tt.wantErr {
-				// Don't check the result if we got an error
-				return
-			}
-
-			require.Len(t, mp.groups, 1)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-
+			require.NoError(t, tr.Commit())
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1, "Exactly one metric payload expected")
+			sl := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
 			require.Equal(t, 1, sl.Len(), "Exactly one metric expected")
 			metric := sl.At(0)
 			require.Equal(t, mc[tt.metricName].Help, metric.Description(), "Expected help metadata in metric description")
 			require.Equal(t, mc[tt.metricName].Unit, metric.Unit(), "Expected unit metadata in metric")
-
 			hdpL := metric.ExponentialHistogram().DataPoints()
 			require.Equal(t, 1, hdpL.Len(), "Exactly one point expected")
 			got := hdpL.At(0)
@@ -776,7 +809,7 @@ func TestMetricGroupData_toExponentialDistributionUnitTest(t *testing.T) {
 	}
 }
 
-func TestMetricGroupData_toSummaryUnitTest(t *testing.T) {
+func TestTransaction_toSummaryUnitTest(t *testing.T) {
 	type scrape struct {
 		at     int64
 		value  float64
@@ -1021,37 +1054,38 @@ func TestMetricGroupData_toSummaryUnitTest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily(tt.name, mc, zap.NewNop(), false, false)
+			sink := new(consumertest.MetricsSink)
+			core, observedLogs := observer.New(zap.InfoLevel)
+			settings := receivertest.NewNopSettings(receivertest.NopType)
+			settings.Logger = zap.New(core)
+			ctx := newCtxWithMeta(testMetadataStore(mc))
+			tr := newTransaction(ctx, sink, labels.EmptyLabels(), settings, nopObsRecv(t), false, true)
 			for _, lbs := range tt.labelsScrapes {
-				for i, scrape := range lbs.scrapes {
-					lb := lbs.labels.Copy()
-					sRef, _ := getSeriesRefWithoutScopeLabels(nil, lb, mp.mtype)
-					err := mp.addSeries(sRef, scrape.metric, lb, scrape.at, scrape.value)
-					if tt.wantErr {
-						// The first scrape won't have an error
-						if i != 0 {
-							require.Error(t, err)
-						}
-					} else {
-						require.NoError(t, err)
+				for _, tv := range lbs.scrapes {
+					lbBuilder := labels.NewBuilder(lbs.labels)
+					lbBuilder.Set(model.InstanceLabel, "localhost:8080")
+					lbBuilder.Set(model.JobLabel, "test")
+					mName := tv.metric
+					if mName == "value" {
+						mName = tt.name
 					}
+					lbBuilder.Set(model.MetricNameLabel, mName)
+					_, err := tr.Append(0, lbBuilder.Labels(), 0, tv.at, tv.value, nil, nil, storage.AOptions{})
+					require.NoError(t, err)
 				}
 			}
 			if tt.wantErr {
-				// Don't check the result if we got an error
+				require.Greater(t, observedLogs.FilterMessage("failed to add datapoint").Len(), 0)
 				return
 			}
-
-			require.Len(t, mp.groups, 1)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-
+			require.NoError(t, tr.Commit())
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1, "Exactly one metric payload expected")
+			sl := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
 			require.Equal(t, 1, sl.Len(), "Exactly one metric expected")
 			metric := sl.At(0)
 			require.Equal(t, mc[tt.name].Help, metric.Description(), "Expected help metadata in metric description")
 			require.Equal(t, mc[tt.name].Unit, metric.Unit(), "Expected unit metadata in metric")
-
 			sdpL := metric.Summary().DataPoints()
 			require.Equal(t, 1, sdpL.Len(), "Exactly one point expected")
 			got := sdpL.At(0)
@@ -1061,7 +1095,7 @@ func TestMetricGroupData_toSummaryUnitTest(t *testing.T) {
 	}
 }
 
-func TestMetricGroupData_toNumberDataUnitTest(t *testing.T) {
+func TestTransaction_toNumberDataUnitTest(t *testing.T) {
 	type scrape struct {
 		at     int64
 		value  float64
@@ -1160,26 +1194,37 @@ func TestMetricGroupData_toNumberDataUnitTest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mp := newMetricFamily(tt.metricKind, mc, zap.NewNop(), false, false)
+			sink := new(consumertest.MetricsSink)
+			ctx := newCtxWithMeta(testMetadataStore(mc))
+			tr := newTransaction(ctx, sink, labels.EmptyLabels(), receivertest.NewNopSettings(receivertest.NopType), nopObsRecv(t), false, true)
 			for _, tv := range tt.scrapes {
-				lb := tt.labels.Copy()
-				sRef, _ := getSeriesRefWithoutScopeLabels(nil, lb, mp.mtype)
-				require.NoError(t, mp.addSeries(sRef, tv.metric, lb, tv.at, tv.value))
+				lbBuilder := labels.NewBuilder(tt.labels)
+				lbBuilder.Set(model.InstanceLabel, "localhost:8080")
+				lbBuilder.Set(model.JobLabel, "test")
+				mName := tv.metric
+				if mName == "value" || mName == "value_created" {
+					mName = tt.metricKind
+				}
+				lbBuilder.Set(model.MetricNameLabel, mName)
+				_, err := tr.Append(0, lbBuilder.Labels(), 0, tv.at, tv.value, nil, nil, storage.AOptions{
+					MetricFamilyName: tt.metricKind,
+					Metadata: metadata.Metadata{
+						Type: mc[tt.metricKind].Type,
+						Help: mc[tt.metricKind].Help,
+						Unit: mc[tt.metricKind].Unit,
+					},
+				})
+				require.NoError(t, err)
 			}
-
-			require.Len(t, mp.groups, 1)
-
-			sl := pmetric.NewMetricSlice()
-			mp.appendMetric(sl, false)
-
-			require.Equal(t, 1, sl.Len(), "Exactly one metric expected")
-			metric := sl.At(0)
+			require.NoError(t, tr.Commit())
+			mds := sink.AllMetrics()
+			require.Len(t, mds, 1, "Exactly one metric payload expected")
+			sl := mds[0].ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+			metric := sl.At(sl.Len() - 1)
 			require.Equal(t, mc[tt.metricKind].Help, metric.Description(), "Expected help metadata in metric description")
 			require.Equal(t, mc[tt.metricKind].Unit, metric.Unit(), "Expected unit metadata in metric")
-
 			ndpL := metric.Sum().DataPoints()
-			require.Equal(t, 1, ndpL.Len(), "Exactly one point expected")
-			got := ndpL.At(0)
+			got := ndpL.At(ndpL.Len() - 1)
 			want := tt.want()
 			require.Equal(t, want, got, "Expected the points to be equal")
 		})
@@ -1402,7 +1447,9 @@ func TestConvertExemplar(t *testing.T) {
 				Labels: tt.labels,
 			}
 			got := pmetric.NewExemplar()
-			convertExemplar(pe, got)
+			got.SetTimestamp(timestampFromMs(pe.Ts))
+			got.SetDoubleValue(pe.Value)
+			populateExemplar(got, pe)
 			require.Equal(t, tt.want(), got)
 		})
 	}

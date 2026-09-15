@@ -5,6 +5,7 @@ package internal // import "github.com/open-telemetry/opentelemetry-collector-co
 
 import (
 	"context"
+	"sync"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -16,10 +17,11 @@ import (
 // appendable translates Prometheus scraping diffs into OpenTelemetry format.
 // It implements storage.AppendableV2.
 type appendable struct {
-	sink           consumer.Metrics
-	useMetadata    bool
-	trimSuffixes   bool
-	externalLabels labels.Labels
+	sink             consumer.Metrics
+	useMetadata      bool
+	trimSuffixes     bool
+	externalLabels   labels.Labels
+	knownMetricTypes *sync.Map
 
 	settings receiver.Settings
 	obsrecv  *receiverhelper.ObsReport
@@ -39,15 +41,16 @@ func NewAppendable(
 	}
 
 	return &appendable{
-		sink:           sink,
-		settings:       set,
-		useMetadata:    useMetadata,
-		externalLabels: externalLabels,
-		obsrecv:        obsrecv,
-		trimSuffixes:   trimSuffixes,
+		sink:             sink,
+		settings:         set,
+		useMetadata:      useMetadata,
+		externalLabels:   externalLabels,
+		obsrecv:          obsrecv,
+		trimSuffixes:     trimSuffixes,
+		knownMetricTypes: new(sync.Map),
 	}, nil
 }
 
 func (o *appendable) AppenderV2(ctx context.Context) storage.AppenderV2 {
-	return newTransaction(ctx, o.sink, o.externalLabels, o.settings, o.obsrecv, o.trimSuffixes, o.useMetadata)
+	return newTransaction(ctx, o.sink, o.externalLabels, o.settings, o.obsrecv, o.trimSuffixes, o.useMetadata, o.knownMetricTypes)
 }
