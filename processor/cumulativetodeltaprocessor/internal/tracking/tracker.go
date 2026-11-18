@@ -88,11 +88,16 @@ type DeltaValue struct {
 }
 
 func NewMetricTracker(ctx context.Context, logger *zap.Logger, maxStaleness time.Duration, initialValue InitialValue) *MetricTracker {
+	return NewMetricTrackerWithRetraction(ctx, logger, maxStaleness, initialValue, RetractionConfig{})
+}
+
+func NewMetricTrackerWithRetraction(ctx context.Context, logger *zap.Logger, maxStaleness time.Duration, initialValue InitialValue, retractionCfg RetractionConfig) *MetricTracker {
 	t := &MetricTracker{
-		logger:       logger,
-		maxStaleness: maxStaleness,
-		initialValue: initialValue,
-		startTime:    pcommon.NewTimestampFromTime(time.Now()),
+		logger:        logger,
+		maxStaleness:  maxStaleness,
+		initialValue:  initialValue,
+		startTime:     pcommon.NewTimestampFromTime(time.Now()),
+		retractionCfg: retractionCfg.Effective(),
 	}
 	if maxStaleness > 0 {
 		go t.sweeper(ctx, t.removeStale)
@@ -101,12 +106,19 @@ func NewMetricTracker(ctx context.Context, logger *zap.Logger, maxStaleness time
 }
 
 type MetricTracker struct {
-	logger       *zap.Logger
-	maxStaleness time.Duration
-	states       sync.Map
-	streams      atomic.Int64
-	initialValue InitialValue
-	startTime    pcommon.Timestamp
+	logger           *zap.Logger
+	maxStaleness     time.Duration
+	states           sync.Map
+	retractionStates sync.Map
+	streams          atomic.Int64
+	initialValue     InitialValue
+	startTime        pcommon.Timestamp
+	retractionCfg    RetractionConfig
+}
+
+// RetractionMode returns the effective RetractionMode configured on this tracker.
+func (t *MetricTracker) RetractionMode() RetractionMode {
+	return t.retractionCfg.Mode
 }
 
 // Streams returns the number of metric streams currently tracked.
@@ -358,6 +370,9 @@ func (t *MetricTracker) removeStale(staleBefore pcommon.Timestamp) {
 		}
 		return true
 	})
+	if t.retractionCfg.Mode != RetractionModeOff {
+		t.removeStaleRetraction(staleBefore)
+	}
 }
 
 func (t *MetricTracker) sweeper(ctx context.Context, remove func(pcommon.Timestamp)) {

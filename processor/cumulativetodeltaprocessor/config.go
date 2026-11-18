@@ -42,6 +42,28 @@ type Config struct {
 	// Cannot be used with deprecated Metrics config option.
 	Include MatchMetrics `mapstructure:"include"`
 	Exclude MatchMetrics `mapstructure:"exclude"`
+
+	// RetractionMode controls out-of-order and reset handling for monotonic sums.
+	// Valid values:
+	//   - off: (default) legacy single-point behavior
+	//   - zset: emit full DBSP algebraic retraction triples on out-of-order/revised points
+	//   - zset_compact: collapse same-endpoint retraction/insertion pairs into one net adjustment
+	//   - non_negative: keep exact global cumulative conservation without emitting negative deltas
+	RetractionMode tracking.RetractionMode `mapstructure:"retraction_mode"`
+
+	// ReorderWindow is the lookback window retained per sum stream when RetractionMode != off.
+	// A zero value applies the runtime default (30s) when retraction mode is enabled.
+	ReorderWindow time.Duration `mapstructure:"reorder_window"`
+
+	// MaxHistoryPoints bounds the maximum number of timestamp-ordered observations retained
+	// per sum stream when RetractionMode != off (must be 0 for default 64, or >= 2).
+	MaxHistoryPoints int `mapstructure:"max_history_points"`
+
+	// PreserveMonotonic keeps IsMonotonic=true on converted sum metrics in zset/zset_compact modes.
+	// When false (default), converted sums emitted in zset/zset_compact modes are marked
+	// non-monotonic (IsMonotonic=false) to conform to the OTel data model when negative
+	// retractions may be emitted. No-op in off and non_negative modes.
+	PreserveMonotonic bool `mapstructure:"preserve_monotonic"`
 }
 
 type MatchMetrics struct {
@@ -83,6 +105,15 @@ func (config *Config) Validate() error {
 				validMetricTypeList,
 			)
 		}
+	}
+	if !config.RetractionMode.IsValid() {
+		return fmt.Errorf("invalid retraction_mode: %s", config.RetractionMode.String())
+	}
+	if config.ReorderWindow < 0 {
+		return fmt.Errorf("reorder_window must be non-negative, got %s", config.ReorderWindow)
+	}
+	if config.MaxHistoryPoints < 0 || config.MaxHistoryPoints == 1 {
+		return fmt.Errorf("max_history_points must be 0 (default) or >= 2, got %d", config.MaxHistoryPoints)
 	}
 	return nil
 }
