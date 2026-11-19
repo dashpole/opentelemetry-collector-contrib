@@ -1,0 +1,11 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkConsumeMetrics-24    	   58534	      2346 ns/op	     224 B/op	       9 allocs/op
+BenchmarkConsumeMetrics-24    	   51830	      2204 ns/op	     224 B/op	       9 allocs/op
+BenchmarkConsumeMetrics-24    	   45627	      2620 ns/op	     224 B/op	       9 allocs/op
+BenchmarkConsumeMetrics-24    	   56463	      2538 ns/op	     224 B/op	       9 allocs/op
+BenchmarkConsumeMetrics-24    	   48686	      2340 ns/op	     224 B/op	       9 allocs/op
+BenchmarkConsumeMetrics-24    	   52700	      3014 ns/op	     224 B/op	       9 allocs/op
+PASS

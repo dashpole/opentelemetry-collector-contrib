@@ -1,0 +1,22 @@
+=== RUN   TestMemoryFootprint50kSeries
+    benchmark_50k_test.go:139: 
+        === 50,000 Active Series Memory Footprint: 5s scrape / 30s window (W=8 steady state) ===
+    benchmark_50k_test.go:140: Mode          |     HeapMiB |   B/series |  DeltaVsOff |    HeapObjs |  GCPause
+    benchmark_50k_test.go:148: off           |    11.06MiB |      231.8 |      +0.0 B |      217164 |   5.88ms
+    benchmark_50k_test.go:148: zset          |    17.11MiB |      358.8 |    +127.0 B |      267146 |   3.26ms
+    benchmark_50k_test.go:148: zset_compact  |    17.13MiB |      359.3 |    +127.5 B |      267311 |   3.14ms
+    benchmark_50k_test.go:148: non_negative  |    17.15MiB |      359.8 |    +127.9 B |      267410 |   4.21ms
+    benchmark_50k_test.go:157: 
+        === 50,000 Active Series Memory Footprint: 2s scrape / 30s window (W=17 steady state) ===
+    benchmark_50k_test.go:158: Mode          |     HeapMiB |   B/series |  DeltaVsOff |    HeapObjs |  GCPause
+    benchmark_50k_test.go:166: off           |    11.03MiB |      231.4 |      +0.0 B |      217322 |   7.04ms
+    benchmark_50k_test.go:166: zset          |    29.34MiB |      615.3 |    +383.9 B |      267298 |   4.05ms
+    benchmark_50k_test.go:166: zset_compact  |    29.37MiB |      616.0 |    +384.6 B |      267507 |   4.89ms
+    benchmark_50k_test.go:166: non_negative  |    29.33MiB |      615.1 |    +383.7 B |      267221 |   5.12ms
+    benchmark_50k_test.go:171: 
+        === Rotating StartTimestamp Scaling: 50,000 Series x 3 Generations / 2 Restarts (150,000 map entries) ===
+    benchmark_50k_test.go:172: Mode          |     HeapMiB |    B/entry |    HeapObjs
+    benchmark_50k_test.go:175: off           |    34.13MiB |      238.6 |      658606
+    benchmark_50k_test.go:175: zset          |    52.41MiB |      366.4 |      808507
+--- PASS: TestMemoryFootprint50kSeries (13.64s)
+PASS

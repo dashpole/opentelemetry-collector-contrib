@@ -1,0 +1,87 @@
+=== RUN   TestEvaluationSyntheticTraces
+=== RUN   TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_5pctOoO
+    evaluation_test.go:719: 
+        === ScenarioA_SharedID_5s_5pctOoO ===
+    evaluation_test.go:719: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:719: off           |   3600 |    3324 |    7.67% |    168 |      7 |   34 |        12580 |      8.933 |    915 |  0.92 |     0
+    evaluation_test.go:719: zset          |   3600 |    3969 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.10 |   183
+    evaluation_test.go:719: zset_compact  |   3600 |    3741 |    0.00% |      0 |      0 |    0 |            0 |          0 |    318 |  1.04 |   160
+    evaluation_test.go:719: non_negative  |   3600 |    3421 |    0.00% |      0 |      0 |    0 |            0 |      3.756 |    502 |  0.95 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_10pctOoO
+    evaluation_test.go:719: 
+        === ScenarioA_SharedID_5s_10pctOoO ===
+    evaluation_test.go:719: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:719: off           |   3600 |    3166 |   12.06% |    327 |      3 |   47 |        16108 |      15.12 |   1658 |  0.88 |     0
+    evaluation_test.go:719: zset          |   3600 |    4324 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.20 |   361
+    evaluation_test.go:719: zset_compact  |   3600 |    3892 |    0.00% |      0 |      0 |    0 |            0 |          0 |    638 |  1.08 |   326
+    evaluation_test.go:719: non_negative  |   3600 |    3240 |    0.00% |      0 |      0 |    0 |            0 |      8.731 |   1006 |  0.90 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_15pctOoO
+    evaluation_test.go:719: 
+        === ScenarioA_SharedID_5s_15pctOoO ===
+    evaluation_test.go:719: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:719: off           |   3600 |    3051 |   15.25% |    439 |     18 |   78 |        36712 |      23.32 |   2164 |  0.85 |     0
+    evaluation_test.go:719: zset          |   3600 |    4571 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.27 |   482
+    evaluation_test.go:719: zset_compact  |   3600 |    3953 |    0.00% |      0 |      0 |    0 |            0 |          0 |    858 |  1.10 |   412
+    evaluation_test.go:719: non_negative  |   3600 |    3129 |    0.00% |      0 |      0 |    0 |            0 |      10.95 |   1323 |  0.87 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioA_SharedID_2s_15pctOoO
+    evaluation_test.go:719: 
+        === ScenarioA_SharedID_2s_15pctOoO ===
+    evaluation_test.go:719: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:719: off           |   3600 |    2970 |   17.50% |    424 |     46 |   67 |        91607 |      39.73 |   2145 |  0.82 |     0
+    evaluation_test.go:719: zset          |   3600 |    4706 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.31 |   549
+    evaluation_test.go:719: zset_compact  |   3600 |    4008 |    0.00% |      0 |      0 |    0 |            0 |          0 |    936 |  1.11 |   471
+    evaluation_test.go:719: non_negative  |   3600 |    3066 |    0.00% |      0 |      0 |    0 |            0 |      12.21 |   1386 |  0.85 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioB_RotatingStartTS_5s_15pctOoO_Auto
+    evaluation_test.go:765: 
+        === ScenarioB_RotatingStartTS_5s_15pctOoO_Auto ===
+    evaluation_test.go:765: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:765: off           |   1800 |    1608 |   10.67% |    202 |      0 |   17 |         9694 |      15.77 |    927 |  0.89 |     0
+    evaluation_test.go:765: zset          |   1800 |    2215 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.23 |   206
+    evaluation_test.go:765: zset_compact  |   1800 |    1967 |    0.00% |      0 |      0 |    0 |            0 |          0 |    384 |  1.09 |   188
+    evaluation_test.go:765: non_negative  |   1800 |    1591 |    0.00% |      0 |      0 |    0 |            0 |      10.39 |    586 |  0.88 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioC_DuplicatesAndRevisions_15pctOoO
+    evaluation_test.go:793: 
+        === ScenarioC_DuplicatesAndRevisions_15pctOoO ===
+    evaluation_test.go:793: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:793: off           |    919 |     779 |   15.23% |     86 |     28 |   14 |         5651 |      31.13 |    517 |  0.85 |     0
+    evaluation_test.go:793: zset          |    919 |    1098 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.19 |   147
+    evaluation_test.go:793: zset_compact  |    919 |     930 |    0.00% |      0 |      0 |    0 |            0 |          0 |    188 |  1.01 |   111
+    evaluation_test.go:793: non_negative  |    919 |     726 |    1.96% |      0 |      0 |    0 |            0 |      10.96 |    286 |  0.79 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioD_Float64_1e8Scale_15pctOoO
+    evaluation_test.go:825: 
+        === ScenarioD_Float64_1e8Scale_15pctOoO ===
+    evaluation_test.go:825: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:825: off           |   1000 |     861 |   13.90% |    116 |      3 |   21 |    8.093e+08 |  2.161e+06 |    561 |  0.86 |     0
+    evaluation_test.go:825: zset          |   1000 |    1251 |    0.00% |      0 |      0 |    0 |    9.537e-07 |          0 |      0 |  1.25 |   124
+    evaluation_test.go:825: zset_compact  |   1000 |    1102 |    0.00% |      0 |      0 |    0 |    9.537e-07 |  1.863e-12 |    218 |  1.10 |   113
+    evaluation_test.go:825: non_negative  |   1000 |     876 |    0.00% |      0 |      0 |    0 |    1.907e-06 |  1.163e+06 |    346 |  0.88 |     0
+=== RUN   TestEvaluationSyntheticTraces/ScenarioE_InitialValueDrop_AbsorbedTracking
+    evaluation_test.go:849: 
+        === ScenarioE_InitialValueDrop_AbsorbedTracking ===
+    evaluation_test.go:849: Mode          | Inputs | Emitted | ErrDrop% |   SpkT |   SpkP |  Inv |    GlobalErr |  BucketMAE | ZSetMM |   Amp |  Neg#
+    evaluation_test.go:849: off           |    800 |     681 |   13.62% |     85 |      4 |   14 |         6842 |      19.74 |    425 |  0.85 |     0
+    evaluation_test.go:849: zset          |    800 |     976 |    0.00% |      0 |      0 |    0 |            0 |          0 |      0 |  1.22 |    92
+    evaluation_test.go:849: zset_compact  |    800 |     852 |    0.00% |      0 |      0 |    0 |            0 |          0 |    168 |  1.06 |    76
+    evaluation_test.go:849: non_negative  |    800 |     700 |    0.00% |      0 |      0 |    0 |            0 |      8.613 |    252 |  0.88 |     0
+--- PASS: TestEvaluationSyntheticTraces (6.16s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_5pctOoO (1.26s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_10pctOoO (1.30s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioA_SharedID_5s_15pctOoO (1.39s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioA_SharedID_2s_15pctOoO (1.34s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioB_RotatingStartTS_5s_15pctOoO_Auto (0.43s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioC_DuplicatesAndRevisions_15pctOoO (0.17s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioD_Float64_1e8Scale_15pctOoO (0.16s)
+    --- PASS: TestEvaluationSyntheticTraces/ScenarioE_InitialValueDrop_AbsorbedTracking (0.12s)
+=== RUN   TestDownstreamCompatibility
+    evaluation_test.go:944: 
+        === Downstream Compatibility Matrix (Oracle Total = 44485, 10 series x 100 pts, 15% OoO <= 10s jitter) ===
+    evaluation_test.go:945: Mode          | OutMono  |  DBSP_ZSet |   Add_TSDB |   DTC_Acc |  DTC_OldSt |    DTC_OoO |    DTC_Err
+    evaluation_test.go:1032: off           | true     |       7794 |       7794 |       837 |          0 |         13 |      +7794
+    evaluation_test.go:1032: zset          | false    |          0 |          0 |       868 |          0 |        394 |       -193
+    evaluation_test.go:1032: zset_compact  | false    |          0 |          0 |       868 |          0 |        231 |       -193
+    evaluation_test.go:1032: non_negative  | true     |          0 |          0 |       868 |          0 |          3 |       -193
+=== RUN   TestDownstreamCompatibility/InitialValueDrop_HeadPrependTriggersErrOlderStart
+--- PASS: TestDownstreamCompatibility (0.03s)
+    --- PASS: TestDownstreamCompatibility/InitialValueDrop_HeadPrependTriggersErrOlderStart (0.00s)
+PASS
+ok  	github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor	6.243s

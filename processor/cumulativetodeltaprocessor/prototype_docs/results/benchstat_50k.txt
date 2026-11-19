@@ -1,0 +1,21 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+                            │     off      │                zset                 │            zset_compact             │            non_negative             │
+                            │    sec/op    │    sec/op     vs base               │    sec/op     vs base               │    sec/op     vs base               │
+50kSeriesInOrder-24           2.386µ ± 36%   1.888µ ± 16%  -20.91% (p=0.009 n=6)   1.920µ ± 10%  -19.55% (p=0.015 n=6)   1.917µ ±  7%  -19.69% (p=0.004 n=6)
+50kSeriesOutOfOrder15Pct-24   3.569µ ±  9%   3.420µ ±  6%        ~ (p=0.240 n=6)   3.543µ ±  7%        ~ (p=0.937 n=6)   3.302µ ± 10%        ~ (p=0.065 n=6)
+geomean                       2.918µ         2.541µ        -12.94%                 2.608µ        -10.63%                 2.515µ        -13.80%
+
+                            │    off     │               zset                │           zset_compact            │           non_negative            │
+                            │    B/op    │    B/op     vs base               │    B/op     vs base               │    B/op     vs base               │
+50kSeriesInOrder-24           224.0 ± 0%   160.0 ± 0%  -28.57% (p=0.002 n=6)   160.0 ± 0%  -28.57% (p=0.002 n=6)   160.0 ± 0%  -28.57% (p=0.002 n=6)
+50kSeriesOutOfOrder15Pct-24   224.0 ± 0%   228.0 ± 0%   +1.79% (p=0.002 n=6)   205.0 ± 0%   -8.48% (p=0.002 n=6)   192.0 ± 1%  -14.29% (p=0.002 n=6)
+geomean                       224.0        191.0       -14.73%                 181.1       -19.15%                 175.3       -21.75%
+
+                            │    off     │               zset                │           zset_compact            │           non_negative            │
+                            │ allocs/op  │ allocs/op   vs base               │ allocs/op   vs base               │ allocs/op   vs base               │
+50kSeriesInOrder-24           9.000 ± 0%   7.000 ± 0%  -22.22% (p=0.002 n=6)   7.000 ± 0%  -22.22% (p=0.002 n=6)   7.000 ± 0%  -22.22% (p=0.002 n=6)
+50kSeriesOutOfOrder15Pct-24   9.000 ± 0%   8.000 ± 0%  -11.11% (p=0.002 n=6)   7.000 ± 0%  -22.22% (p=0.002 n=6)   7.000 ± 0%  -22.22% (p=0.002 n=6)
+geomean                       9.000        7.483       -16.85%                 7.000       -22.22%                 7.000       -22.22%

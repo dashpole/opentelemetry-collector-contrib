@@ -1,0 +1,21 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor/internal/tracking
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+                             │     off      │               zset                │            zset_compact            │            non_negative            │
+                             │    sec/op    │   sec/op     vs base              │    sec/op     vs base              │    sec/op     vs base              │
+Tracker50kInOrder-24           1.265µ ± 12%   1.245µ ± 5%       ~ (p=0.818 n=6)   1.352µ ± 17%       ~ (p=0.258 n=6)   1.210µ ± 35%       ~ (p=0.699 n=6)
+Tracker50kOutOfOrder15Pct-24   1.420µ ± 12%   1.375µ ± 8%       ~ (p=0.093 n=6)   1.368µ ±  4%       ~ (p=0.065 n=6)   1.432µ ±  9%       ~ (p=0.851 n=6)
+geomean                        1.340µ         1.308µ       -2.38%                 1.360µ        +1.49%                 1.316µ        -1.77%
+
+                             │     off     │               zset                │           zset_compact            │           non_negative            │
+                             │    B/op     │    B/op     vs base               │    B/op     vs base               │    B/op     vs base               │
+Tracker50kInOrder-24           112.00 ± 0%   48.00 ± 0%  -57.14% (p=0.002 n=6)   48.00 ± 0%  -57.14% (p=0.002 n=6)   48.00 ± 0%  -57.14% (p=0.002 n=6)
+Tracker50kOutOfOrder15Pct-24   112.00 ± 0%   61.00 ± 3%  -45.54% (p=0.002 n=6)   61.00 ± 3%  -45.54% (p=0.002 n=6)   61.00 ± 3%  -45.54% (p=0.002 n=6)
+geomean                         112.0        54.11       -51.69%                 54.11       -51.69%                 54.11       -51.69%
+
+                             │    off     │               zset                │           zset_compact            │           non_negative            │
+                             │ allocs/op  │ allocs/op   vs base               │ allocs/op   vs base               │ allocs/op   vs base               │
+Tracker50kInOrder-24           3.000 ± 0%   1.000 ± 0%  -66.67% (p=0.002 n=6)   1.000 ± 0%  -66.67% (p=0.002 n=6)   1.000 ± 0%  -66.67% (p=0.002 n=6)
+Tracker50kOutOfOrder15Pct-24   3.000 ± 0%   1.000 ± 0%  -66.67% (p=0.002 n=6)   1.000 ± 0%  -66.67% (p=0.002 n=6)   1.000 ± 0%  -66.67% (p=0.002 n=6)
+geomean                        3.000        1.000       -66.67%                 1.000       -66.67%                 1.000       -66.67%

@@ -1,0 +1,53 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+Benchmark50kSeriesInOrder/off-24        	  394987	      3248 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/off-24        	  428997	      2772 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/off-24        	  474475	      2467 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/off-24        	  711762	      2306 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/off-24        	  527174	      2093 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/off-24        	  595635	      2014 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  659350	      1812 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  519864	      1969 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  742524	      1781 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  676246	      1755 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  654906	      1963 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset-24       	  755636	      2196 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  579548	      2021 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  572728	      2112 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  613402	      1922 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  758035	      1898 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  552060	      1828 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/zset_compact-24         	  786490	      1918 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  650696	      1912 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  581348	      1920 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  601148	      2045 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  688791	      1913 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  656882	      1888 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesInOrder/non_negative-24         	  891703	      1953 ns/op	     160 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  368764	      3470 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  334213	      3596 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  341664	      3541 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  335140	      3882 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  333790	      3740 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/off-24          	  326328	      3318 ns/op	     224 B/op	       9 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  337038	      3370 ns/op	     228 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  350565	      3452 ns/op	     228 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  394183	      3387 ns/op	     227 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  351483	      3284 ns/op	     228 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  389416	      3552 ns/op	     227 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset-24         	  317514	      3631 ns/op	     229 B/op	       8 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  341688	      3416 ns/op	     206 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  320493	      3743 ns/op	     206 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  407070	      3536 ns/op	     204 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  372554	      3368 ns/op	     205 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  376942	      3793 ns/op	     205 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/zset_compact-24 	  379950	      3550 ns/op	     205 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  379755	      3165 ns/op	     192 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  388288	      3431 ns/op	     191 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  351904	      3334 ns/op	     192 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  361705	      3209 ns/op	     192 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  373491	      3269 ns/op	     192 B/op	       7 allocs/op
+Benchmark50kSeriesOutOfOrder15Pct/non_negative-24 	  359968	      3620 ns/op	     192 B/op	       7 allocs/op
+PASS

@@ -1,0 +1,53 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/cumulativetodeltaprocessor/internal/tracking
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkTracker50kInOrder/off-24        	  975560	      1268 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/off-24        	  884437	      1422 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/off-24        	  787690	      1284 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/off-24        	 1000000	      1145 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/off-24        	  884497	      1262 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/off-24        	 1000000	      1257 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	  942962	      1307 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	  865730	      1275 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	  911619	      1269 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	 1000000	      1187 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	  972649	      1211 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset-24       	  959142	      1221 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	 1000000	      1256 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	  811062	      1274 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	  980731	      1262 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	  861579	      1430 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	 1000000	      1578 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/zset_compact-24         	  822877	      1459 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	  922185	      1628 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	 1000000	      1217 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	  817551	      1299 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	  940124	      1158 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	  903938	      1159 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kInOrder/non_negative-24         	  875563	      1203 ns/op	      48 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	  826525	      1428 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	 1000000	      1383 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	  761354	      1475 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	  859984	      1379 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	  725706	      1589 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/off-24          	  921979	      1411 ns/op	     112 B/op	       3 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	  751161	      1385 ns/op	      63 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	  846361	      1421 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	  857691	      1306 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	 1000000	      1364 ns/op	      60 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	  948121	      1407 ns/op	      60 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset-24         	  811557	      1260 ns/op	      62 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	  746830	      1388 ns/op	      63 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	  967636	      1350 ns/op	      60 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	  880885	      1355 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	 1000000	      1356 ns/op	      60 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	  911887	      1424 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/zset_compact-24 	  916459	      1380 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	 1000000	      1383 ns/op	      60 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	  916581	      1304 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	  903397	      1309 ns/op	      61 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	  817083	      1481 ns/op	      62 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	  757047	      1532 ns/op	      63 B/op	       1 allocs/op
+BenchmarkTracker50kOutOfOrder15Pct/non_negative-24 	  854700	      1559 ns/op	      61 B/op	       1 allocs/op
+PASS
