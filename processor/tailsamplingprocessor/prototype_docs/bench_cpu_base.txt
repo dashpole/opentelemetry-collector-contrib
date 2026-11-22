@@ -1,0 +1,108 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   16567	     34668 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     156	   4092289 ns/op	 141.39 MB/s	       100.9 consume-calls/op	      1310 sampled-spans/op	 3144022 B/op	   42944 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     328	   1670694 ns/op	 346.34 MB/s	       123.2 consume-calls/op	      1596 sampled-spans/op	 2667446 B/op	   36778 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     216	   2470898 ns/op	 263.47 MB/s	       108.4 consume-calls/op	      1408 sampled-spans/op	 2134958 B/op	   31723 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     534	    997970 ns/op	 652.34 MB/s	       125.6 consume-calls/op	      1628 sampled-spans/op	 1711758 B/op	   25920 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     214	   2889391 ns/op	 205.90 MB/s	       108.3 consume-calls/op	      1406 sampled-spans/op	 2431394 B/op	   32666 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     464	   1209370 ns/op	 491.94 MB/s	       124.5 consume-calls/op	      1617 sampled-spans/op	 2108503 B/op	   28417 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     205	   2830205 ns/op	 203.83 MB/s	       107.4 consume-calls/op	      1395 sampled-spans/op	 2438050 B/op	   32439 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     410	   1219723 ns/op	 472.96 MB/s	       123.2 consume-calls/op	      1604 sampled-spans/op	 2131601 B/op	   28437 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     206	   2815021 ns/op	  868757 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    2676	    227754 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     379	   1589443 ns/op	  513265 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     357	   1702082 ns/op	  551705 B/op	    5127 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   20932	     28497 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     120	   4341253 ns/op	 133.29 MB/s	        93.87 consume-calls/op	      1219 sampled-spans/op	 3435823 B/op	   46887 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     312	   1809564 ns/op	 319.76 MB/s	       123.5 consume-calls/op	      1604 sampled-spans/op	 2736019 B/op	   37805 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     164	   3120877 ns/op	 208.60 MB/s	       103.0 consume-calls/op	      1338 sampled-spans/op	 2397708 B/op	   35405 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     447	   1245197 ns/op	 522.82 MB/s	       123.9 consume-calls/op	      1609 sampled-spans/op	 1778235 B/op	   26861 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     162	   3530197 ns/op	 168.53 MB/s	       101.9 consume-calls/op	      1323 sampled-spans/op	 2677510 B/op	   36055 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     432	   1218872 ns/op	 488.10 MB/s	       123.5 consume-calls/op	      1598 sampled-spans/op	 2144129 B/op	   28913 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     176	   3009568 ns/op	 191.68 MB/s	       104.0 consume-calls/op	      1351 sampled-spans/op	 2552850 B/op	   33990 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     344	   1513762 ns/op	 381.09 MB/s	       120.0 consume-calls/op	      1558 sampled-spans/op	 2227054 B/op	   29778 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     208	   2883026 ns/op	  868755 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    2868	    229010 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     375	   1538499 ns/op	  513264 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     393	   1679216 ns/op	  551705 B/op	    5127 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   17803	     32880 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     138	   3972206 ns/op	 145.67 MB/s	        97.42 consume-calls/op	      1265 sampled-spans/op	 3264873 B/op	   44563 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     303	   1674763 ns/op	 345.50 MB/s	       121.2 consume-calls/op	      1578 sampled-spans/op	 2715509 B/op	   37449 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     216	   2364180 ns/op	 275.37 MB/s	       108.4 consume-calls/op	      1408 sampled-spans/op	 2133663 B/op	   31701 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     433	   1185062 ns/op	 549.35 MB/s	       124.4 consume-calls/op	      1616 sampled-spans/op	 1795354 B/op	   27111 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     204	   2733798 ns/op	 217.62 MB/s	       107.3 consume-calls/op	      1393 sampled-spans/op	 2468190 B/op	   33164 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     414	   1224459 ns/op	 485.87 MB/s	       124.7 consume-calls/op	      1619 sampled-spans/op	 2193734 B/op	   29662 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     164	   3080809 ns/op	 187.25 MB/s	       102.3 consume-calls/op	      1329 sampled-spans/op	 2628233 B/op	   35028 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     408	   1247855 ns/op	 462.30 MB/s	       124.1 consume-calls/op	      1614 sampled-spans/op	 2156061 B/op	   28806 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     228	   2627367 ns/op	  868755 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    2804	    260955 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     362	   1623238 ns/op	  513265 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     303	   1851577 ns/op	  551705 B/op	    5127 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   25384	     24469 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     175	   2878029 ns/op	 201.05 MB/s	       103.9 consume-calls/op	      1349 sampled-spans/op	 3024038 B/op	   41305 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     356	   1535457 ns/op	 376.84 MB/s	       125.5 consume-calls/op	      1623 sampled-spans/op	 2651728 B/op	   36609 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     246	   2251457 ns/op	 289.15 MB/s	       110.9 consume-calls/op	      1439 sampled-spans/op	 2035874 B/op	   30339 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     580	    874318 ns/op	 744.60 MB/s	       122.3 consume-calls/op	      1590 sampled-spans/op	 1666570 B/op	   25258 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     229	   2241762 ns/op	 265.39 MB/s	       109.9 consume-calls/op	      1428 sampled-spans/op	 2383043 B/op	   32005 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     661	    833424 ns/op	 713.84 MB/s	       125.8 consume-calls/op	      1633 sampled-spans/op	 1983128 B/op	   26647 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     289	   1948492 ns/op	 296.07 MB/s	       113.4 consume-calls/op	      1472 sampled-spans/op	 2212576 B/op	   29363 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     606	    841045 ns/op	 685.92 MB/s	       125.8 consume-calls/op	      1635 sampled-spans/op	 1994667 B/op	   26542 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     280	   2106708 ns/op	  868755 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    3712	    186567 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     406	   1385305 ns/op	  513264 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     493	   1128014 ns/op	  551705 B/op	    5127 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   26817	     22799 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     260	   2304400 ns/op	 251.10 MB/s	       111.8 consume-calls/op	      1451 sampled-spans/op	 2740644 B/op	   37480 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     542	   1020911 ns/op	 566.78 MB/s	       121.6 consume-calls/op	      1578 sampled-spans/op	 2476205 B/op	   34194 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     308	   1893907 ns/op	 343.74 MB/s	       114.3 consume-calls/op	      1484 sampled-spans/op	 1892828 B/op	   28337 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     931	    603430 ns/op	1078.86 MB/s	       125.3 consume-calls/op	      1627 sampled-spans/op	 1536018 B/op	   23413 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     301	   1715277 ns/op	 346.84 MB/s	       114.4 consume-calls/op	      1485 sampled-spans/op	 2216204 B/op	   29716 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     751	    735684 ns/op	 808.68 MB/s	       125.4 consume-calls/op	      1628 sampled-spans/op	 1949029 B/op	   26167 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     309	   1747642 ns/op	 330.09 MB/s	       114.7 consume-calls/op	      1490 sampled-spans/op	 2179457 B/op	   28921 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     747	    766855 ns/op	 752.28 MB/s	       125.9 consume-calls/op	      1634 sampled-spans/op	 1968375 B/op	   26223 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     322	   1836654 ns/op	  868755 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    3628	    156956 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     622	    993283 ns/op	  513265 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     552	   1095318 ns/op	  551706 B/op	    5127 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkSampling-24                     	   26654	     23154 ns/op
+BenchmarkProcessorThroughput/shape=mixed/shards=1-24         	     225	   2419419 ns/op	 239.16 MB/s	       109.2 consume-calls/op	      1418 sampled-spans/op	 2832918 B/op	   38730 allocs/op
+BenchmarkProcessorThroughput/shape=mixed/shards=4-24         	     454	   1181706 ns/op	 489.66 MB/s	       124.1 consume-calls/op	      1612 sampled-spans/op	 2607354 B/op	   36124 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=1-24         	     331	   1703535 ns/op	 382.16 MB/s	       115.3 consume-calls/op	      1497 sampled-spans/op	 1847425 B/op	   27694 allocs/op
+BenchmarkProcessorThroughput/shape=resource-per-trace/shards=4-24         	     712	    730970 ns/op	 890.62 MB/s	       125.7 consume-calls/op	      1629 sampled-spans/op	 1609211 B/op	   24453 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=1-24    	     352	   1546253 ns/op	 384.76 MB/s	       116.0 consume-calls/op	      1506 sampled-spans/op	 2139209 B/op	   28667 allocs/op
+BenchmarkProcessorThroughput/shape=few-traces-per-resource/shards=4-24    	     872	    723093 ns/op	 822.76 MB/s	       126.4 consume-calls/op	      1642 sampled-spans/op	 1924844 B/op	   25846 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=1-24                        	     308	   1844232 ns/op	 312.81 MB/s	       114.3 consume-calls/op	      1485 sampled-spans/op	 2182363 B/op	   28964 allocs/op
+BenchmarkProcessorThroughput/shape=sdk/shards=4-24                        	     590	    880911 ns/op	 654.87 MB/s	       125.4 consume-calls/op	      1630 sampled-spans/op	 1999609 B/op	   26607 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=mixed-24                         	     249	   2269245 ns/op	  868754 B/op	   10672 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=resource-per-trace-24            	    3241	    190518 ns/op	   27600 B/op	     450 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=few-traces-per-resource-24       	     585	   1100636 ns/op	  513264 B/op	    4682 allocs/op
+BenchmarkSplitResourceSpansByTrace/shape=sdk-24                           	     336	   1801630 ns/op	  551705 B/op	    5127 allocs/op
+PASS

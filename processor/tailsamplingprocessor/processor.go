@@ -110,6 +110,13 @@ type tailSamplingSpanProcessor struct {
 	// tickChan triggers ticks and responds on the provided channel when the tick is complete.
 	// this is used in tests to produce deterministic ticks.
 	tickChan chan chan struct{}
+
+	// Incremental strategy state (nil for trace-complete and span-ingest).
+	ivm               *ivmShardState
+	ivmBypassSplit    bool
+	ivmBypassSplitSet bool
+	ivmArenaMode      arenaStorageMode
+	ivmSlabSize       int
 }
 
 func newTracesProcessor(ctx context.Context, set processor.Settings, nextConsumer consumer.Traces, cfg Config) (processor.Traces, error) {
@@ -201,7 +208,8 @@ func (tsp *tailSamplingSpanProcessor) Start(_ context.Context, host component.Ho
 
 	// If the policies are not set, set them. This is only for testing purposes,
 	// so that withPolicies can inject custom policies.
-	if tsp.policies == nil {
+	injectedPolicies := tsp.policies != nil
+	if !injectedPolicies {
 		tsp.policies = policies
 	}
 
@@ -216,6 +224,16 @@ func (tsp *tailSamplingSpanProcessor) Start(_ context.Context, host component.Ho
 		tsp.decisionBatcher = idBatcher
 	}
 
+	if tsp.isIncremental() {
+		var cfgs []PolicyCfg
+		if !injectedPolicies {
+			cfgs = tsp.cfg.PolicyCfgs
+		}
+		if err := tsp.initIncremental(cfgs, tsp.policies); err != nil {
+			return err
+		}
+	}
+
 	tsp.doneChan = make(chan struct{})
 	go tsp.loop()
 	return nil
@@ -227,7 +245,7 @@ func (tsp *tailSamplingSpanProcessor) SetSamplingPolicy(cfgs []PolicyCfg) {
 		tsp.logger.Error("Failed to load sampling policies", zap.Error(err))
 		return
 	}
-	tsp.newPolicyChan <- newPolicyCmd{policies: policies}
+	tsp.newPolicyChan <- newPolicyCmd{policies: policies, cfgs: slices.Clone(cfgs)}
 }
 
 func (tsp *tailSamplingSpanProcessor) loadSamplingPolicies(host component.Host, cfgs []PolicyCfg) ([]*policy, error) {
@@ -294,6 +312,7 @@ type traceBatch struct {
 
 type newPolicyCmd struct {
 	policies []*policy
+	cfgs     []PolicyCfg
 }
 
 var (
@@ -518,9 +537,17 @@ func (tsp *tailSamplingSpanProcessor) recordImmediateDecisionMetrics(decision sa
 }
 
 func (tsp *tailSamplingSpanProcessor) loop() {
+	// Register doneChan close FIRST so LIFO defer execution runs:
+	// closeIVMStorage() -> ticker.Stop() -> close(doneChan).
+	defer close(tsp.doneChan)
 	ticker := time.NewTicker(tsp.tickerFrequency)
 	defer ticker.Stop()
-	defer close(tsp.doneChan)
+	defer tsp.closeIVMStorage()
+	if tsp.usesRawWorkChan() {
+		for tsp.iterIncremental(ticker.C, tsp.ivm.rawWorkChan) {
+		}
+		return
+	}
 	for tsp.iter(ticker.C, tsp.workChan) {
 	}
 }
@@ -538,7 +565,12 @@ func (tsp *tailSamplingSpanProcessor) iter(tickChan <-chan time.Time, workChan <
 
 			// Do the best decision we can for any traces we have already ingested unless a user wants to drop them.
 			if !tsp.cfg.DropPendingTracesOnShutdown {
-				for tsp.samplingPolicyOnTick() {
+				if tsp.isIncremental() {
+					for tsp.incrementalOnTick() {
+					}
+				} else {
+					for tsp.samplingPolicyOnTick() {
+					}
 				}
 			}
 			return false
@@ -553,7 +585,11 @@ func (tsp *tailSamplingSpanProcessor) iter(tickChan <-chan time.Time, workChan <
 		// before the incoming traces are evaluated against them.
 		select {
 		case cmd := <-tsp.newPolicyChan:
-			tsp.policies = cmd.policies
+			if tsp.isIncremental() {
+				tsp.applyIVMPolicyUpdate(cmd)
+			} else {
+				tsp.policies = cmd.policies
+			}
 			tsp.logger.Debug("New policies loaded", zap.Int("policies.len", len(tsp.policies)))
 		default:
 		}
@@ -562,6 +598,10 @@ func (tsp *tailSamplingSpanProcessor) iter(tickChan <-chan time.Time, workChan <
 			tsp.maxTraceSizeBytes = maxTraceSize
 			tsp.logger.Debug("New maximum trace size loaded", zap.Uint64("size", maxTraceSize))
 		default:
+		}
+
+		if tsp.isIncremental() {
+			return tsp.processIncrementalTraceBatch(tickChan, batch)
 		}
 
 		for _, trace := range batch {
@@ -578,15 +618,27 @@ func (tsp *tailSamplingSpanProcessor) iter(tickChan <-chan time.Time, workChan <
 			tsp.processTrace(trace.id, trace.rss, trace.spanCount, trace.hasRoot)
 		}
 	case cmd := <-tsp.newPolicyChan:
-		tsp.policies = cmd.policies
+		if tsp.isIncremental() {
+			tsp.applyIVMPolicyUpdate(cmd)
+		} else {
+			tsp.policies = cmd.policies
+		}
 		tsp.logger.Debug("New policies loaded", zap.Int("policies.len", len(tsp.policies)))
 	case maxTraceSize := <-tsp.newTraceSizeChan:
 		tsp.maxTraceSizeBytes = maxTraceSize
 		tsp.logger.Debug("New maximum trace size loaded", zap.Uint64("size", maxTraceSize))
 	case <-tickChan:
-		tsp.samplingPolicyOnTick()
+		if tsp.isIncremental() {
+			tsp.incrementalOnTick()
+		} else {
+			tsp.samplingPolicyOnTick()
+		}
 	case tickChan := <-tsp.tickChan:
-		tsp.samplingPolicyOnTick()
+		if tsp.isIncremental() {
+			tsp.incrementalOnTick()
+		} else {
+			tsp.samplingPolicyOnTick()
+		}
 		tickChan <- struct{}{}
 	}
 	return true
@@ -1355,7 +1407,11 @@ func tailStorageExtension(host component.Host, storageID component.ID) (tailstor
 // Shutdown is invoked during service shutdown.
 func (tsp *tailSamplingSpanProcessor) Shutdown(context.Context) error {
 	// All receivers will be shutdown before processors so no sends will be done anymore.
-	close(tsp.workChan)
+	if tsp.usesRawWorkChan() {
+		close(tsp.ivm.rawWorkChan)
+	} else {
+		close(tsp.workChan)
+	}
 	if tsp.doneChan != nil {
 		<-tsp.doneChan
 	}

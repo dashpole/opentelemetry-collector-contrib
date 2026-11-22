@@ -184,6 +184,37 @@ func (sp *shardedProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces)
 	_, span := sp.tracer.Start(ctx, "tailsampling.ConsumeTraces")
 	defer span.End()
 
+	if sp.shards[0].usesRawWorkChan() {
+		if sp.numShards == 1 {
+			var totalSpans, totalResourceSpans int64
+			if span.IsRecording() {
+				totalSpans = int64(td.SpanCount())
+				totalResourceSpans = int64(td.ResourceSpans().Len())
+			}
+			sp.shards[0].ivm.rawWorkChan <- td
+			if span.IsRecording() {
+				span.SetAttributes(
+					attribute.Int64("spans.count", totalSpans),
+					attribute.Int64("resource_spans.count", totalResourceSpans),
+				)
+			}
+			return nil
+		}
+		buckets, hasData, totalSpans, totalResourceSpans := sp.partitionTracesByShard(td)
+		for i, b := range buckets {
+			if hasData[i] {
+				sp.shards[i].ivm.rawWorkChan <- b
+			}
+		}
+		if span.IsRecording() {
+			span.SetAttributes(
+				attribute.Int64("spans.count", totalSpans),
+				attribute.Int64("resource_spans.count", totalResourceSpans),
+			)
+		}
+		return nil
+	}
+
 	var totalSpans, totalTraces, totalResourceSpans int64
 
 	shardBatches := make([][]traceBatch, sp.numShards)

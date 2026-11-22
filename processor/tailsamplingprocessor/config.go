@@ -65,6 +65,10 @@ const (
 	// samplingStrategySpanIngest evaluates each incoming span batch on ingest.
 	// Non-terminal outcomes remain pending until cleanup finalization.
 	samplingStrategySpanIngest samplingStrategy = "span-ingest"
+	// samplingStrategyIncremental evaluates a 5-state incremental decision circuit
+	// per trace over incoming span deltas, short-circuiting terminal decisions and
+	// decoupling pending metadata from compact payload storage.
+	samplingStrategyIncremental samplingStrategy = "incremental"
 )
 
 type samplingStrategy string
@@ -390,14 +394,15 @@ const maxNumShards = 256
 
 func (cfg *Config) Validate() error {
 	switch cfg.SamplingStrategy {
-	case samplingStrategyTraceComplete, samplingStrategySpanIngest:
+	case samplingStrategyTraceComplete, samplingStrategySpanIngest, samplingStrategyIncremental:
 		// valid sampling strategies
 	default:
 		return fmt.Errorf(
-			"invalid sampling_strategy %q, expected one of %q or %q",
+			"invalid sampling_strategy %q, expected one of %q, %q, or %q",
 			cfg.SamplingStrategy,
 			samplingStrategyTraceComplete,
 			samplingStrategySpanIngest,
+			samplingStrategyIncremental,
 		)
 	}
 

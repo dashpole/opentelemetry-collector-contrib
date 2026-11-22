@@ -1,0 +1,54 @@
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 136401257 ns/op	       891.5 retained-B/span	     11575 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	  94247697 ns/op	       723.6 retained-B/span	      9395 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 109955936 ns/op	       725.3 retained-B/span	      9418 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 106692715 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 174555429 ns/op	       892.9 retained-B/span	     11593 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	 109111367 ns/op	       723.6 retained-B/span	      9395 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 125859729 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 125924501 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 173683772 ns/op	       893.1 retained-B/span	     11596 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	 110731837 ns/op	       723.6 retained-B/span	      9395 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 128504730 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 113583406 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 158614561 ns/op	       892.9 retained-B/span	     11593 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	 105421586 ns/op	       723.7 retained-B/span	      9397 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 102922854 ns/op	       725.5 retained-B/span	      9421 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 114841134 ns/op	       724.4 retained-B/span	      9405 retained-B/trace
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 143995982 ns/op	       893.0 retained-B/span	     11595 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	  98353777 ns/op	       723.6 retained-B/span	      9395 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 120471137 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 117800919 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+PASS
+goos: linux
+goarch: amd64
+pkg: github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor
+cpu: Intel(R) Xeon(R) CPU @ 2.20GHz
+BenchmarkProcessorMemory/shape=mixed-24         	       1	 131985921 ns/op	       892.8 retained-B/span	     11593 retained-B/trace
+BenchmarkProcessorMemory/shape=resource-per-trace-24         	       1	 106665379 ns/op	       723.9 retained-B/span	      9400 retained-B/trace
+BenchmarkProcessorMemory/shape=few-traces-per-resource-24    	       1	 125998954 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+BenchmarkProcessorMemory/shape=sdk-24                        	       1	 138377449 ns/op	       725.2 retained-B/span	      9416 retained-B/trace
+PASS
